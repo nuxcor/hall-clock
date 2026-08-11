@@ -108,9 +108,7 @@ textarea {
 }
 
 .display-topline,
-.display-footer,
-.setup-header,
-.section-title {
+.display-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -288,8 +286,7 @@ textarea {
   font-weight: 700;
 }
 
-.phone-shell,
-.setup-shell {
+.phone-shell {
   width: min(100%, 680px);
   min-height: 100vh;
   margin: 0 auto;
@@ -1224,458 +1221,6 @@ textarea {
   box-shadow: none;
 }
 
-.settings-form {
-  display: grid;
-  gap: 12px;
-  margin-top: 20px;
-  padding-bottom: 32px;
-}
-
-.section-title h2 {
-  margin: 0;
-  font-size: 16px;
-  letter-spacing: -0.01em;
-}
-
-.pair-link,
-.save-status {
-  color: var(--muted);
-  font-size: 14px;
-}
-
-.save-status.error {
-  color: var(--red);
-}
-
-.parts-list {
-  display: grid;
-  gap: 8px;
-}
-
-.setup-shell {
-  width: min(100%, 940px);
-  padding-top: 24px;
-  padding-bottom: 42px;
-}
-
-.pair-card h1 {
-  font-size: 36px;
-}
-
-.setup-header {
-  align-items: center;
-  /* Only the nav is left in here, so keep it on the right where it was. */
-  justify-content: flex-end;
-  margin-bottom: 4px;
-}
-
-.setup-nav {
-  display: flex;
-  gap: 12px;
-}
-
-.setup-nav a {
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  padding: 9px 14px;
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--text);
-  font-weight: 700;
-}
-
-.setup-nav a:hover {
-  border-color: rgba(255, 255, 255, 0.24);
-  background: rgba(255, 255, 255, 0.06);
-  text-decoration: none;
-}
-
-.overview-label,
-.section-kicker {
-  margin: 0;
-  color: #8ea5a0;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.settings-card {
-  display: grid;
-  gap: 14px;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 16px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 26%),
-    linear-gradient(180deg, rgba(14, 18, 24, 0.98), rgba(10, 13, 18, 0.97));
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.2);
-}
-
-.settings-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  padding: 5px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.025);
-}
-
-.settings-tab {
-  min-height: 38px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  font-weight: 800;
-  cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease;
-}
-
-.settings-tab:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text);
-}
-
-.settings-tab.active {
-  background: rgba(68, 220, 149, 0.14);
-  color: #e8fff0;
-}
-
-.settings-tab:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 2px;
-}
-
-.settings-panel[hidden] {
-  display: none;
-}
-
-.settings-grid-two {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  align-items: start;
-}
-
-.settings-subsection {
-  margin-top: 4px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
-}
-
-.field {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  color: var(--muted);
-  font-weight: 700;
-}
-
-.field > span {
-  font-size: 13px;
-  letter-spacing: 0.03em;
-}
-
-.field input,
-.field select,
-.manual-import textarea,
-.part-input {
-  width: 100%;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  padding: 13px 14px;
-  background: rgba(8, 11, 15, 0.9);
-  color: var(--text);
-  transition: border-color 150ms ease, box-shadow 150ms ease;
-}
-
-/* Keep every control the same height so labels line up across a row. */
-.field input,
-.field select,
-.part-input {
-  min-height: 46px;
-}
-
-.field input:disabled,
-.field select:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.field-hint {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.4;
-  letter-spacing: 0;
-}
-
-.field-hint code {
-  font-size: 11px;
-  padding: 1px 5px;
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.setup-status-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 12px;
-  align-items: center;
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid rgba(68, 220, 149, 0.16);
-  border-radius: 999px;
-  background: rgba(68, 220, 149, 0.08);
-  color: #dff7ea;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.status-note {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.advanced-field {
-  border-top: 1px solid var(--line);
-  padding-top: 16px;
-}
-
-.advanced-field > summary {
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  transition: color 150ms ease;
-}
-
-.advanced-field > summary:hover {
-  color: var(--text);
-}
-
-.advanced-field .field {
-  margin: 12px 0 0;
-}
-
-.field input:focus,
-.field select:focus,
-.manual-import textarea:focus,
-.part-input:focus {
-  outline: none;
-  border-color: rgba(57, 217, 138, 0.6);
-  box-shadow: 0 0 0 3px rgba(57, 217, 138, 0.15);
-}
-
-.manual-import textarea {
-  min-height: 180px;
-  margin: 8px 0 12px;
-  resize: vertical;
-}
-
-.toggle-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  color: var(--muted);
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.toggle-row input {
-  width: 18px;
-  height: 18px;
-  margin-top: 2px;
-  accent-color: var(--green);
-}
-
-.import-status {
-  font-size: 13px;
-}
-
-.manual-import {
-  border-top: 1px solid var(--line);
-}
-
-.manual-import summary {
-  cursor: pointer;
-  padding: 12px 0 4px;
-  color: var(--muted);
-  font-weight: 700;
-  transition: color 150ms ease;
-}
-
-.manual-import summary:hover {
-  color: var(--text);
-}
-
-.manual-import-body {
-  display: grid;
-  gap: 14px;
-  padding-top: 10px;
-}
-
-.manual-import-body p {
-  margin: 0;
-  color: var(--muted);
-}
-
-.manual-import-body .field {
-  margin: 0;
-}
-
-.import-panel,
-.start-times-panel {
-  display: grid;
-  gap: 14px;
-  margin: 0;
-}
-
-.import-panel h2,
-.start-times-panel h2 {
-  margin: 0 0 6px;
-  font-size: 18px;
-  letter-spacing: -0.01em;
-}
-
-.import-panel p,
-.start-times-panel p {
-  margin: 0;
-  color: var(--muted);
-}
-
-.template-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.starts-list {
-  display: grid;
-  gap: 8px;
-}
-
-.start-row {
-  display: grid;
-  grid-template-columns: 126px 112px minmax(170px, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 12px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.015);
-}
-
-.start-row .field {
-  margin: 0;
-}
-
-.parts-list-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 112px 140px auto;
-  gap: 10px;
-  padding: 0 12px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.parts-list-head span:last-child {
-  visibility: hidden;
-}
-
-.part-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 112px 140px auto;
-  gap: 10px;
-  align-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 12px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.015);
-}
-
-.part-title {
-  min-width: 0;
-}
-
-/* Closing bell is derived by the WOL import, not chosen. Show it, but render it
-   as text so it never reads as a field the operator is expected to fill in.
-   Height matches .part-input so the row stays on one baseline. */
-.part-readonly {
-  display: flex;
-  align-items: center;
-  min-height: 46px;
-  padding: 0 12px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-/* The shared column header names these fields on wide screens. It is hidden at
-   the narrow breakpoint, where these captions take over — a bare number box
-   gives no clue whether it wants minutes or closing-bell seconds. */
-.part-caption {
-  display: none;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-/* Quiet per-row delete: neutral by default, only turns red on hover/focus so
-   a form full of these doesn't read as a wall of danger. */
-.row-remove {
-  align-self: center;
-  min-height: 36px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: color 150ms ease, background-color 150ms ease;
-}
-
-.row-remove:hover {
-  background: rgba(255, 107, 95, 0.06);
-  color: var(--red);
-}
-
-.row-remove:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 2px;
-}
-
-.form-actions {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-top: 6px;
-  padding-top: 6px;
-}
-
-/* The setup form's actions hug their text, unlike the control page where the
-   same class is stretched full width. A 999px pill collapses onto its own end
-   caps at that size, and it is the only round thing on a page built from 12px
-   inputs and cards — so square it off to match them and give the label room. */
-.form-actions .action {
-  min-height: 52px;
-  padding: 12px 28px;
-  border-radius: 12px;
-}
-
 .pair-page {
   display: grid;
   min-height: 100vh;
@@ -1768,10 +1313,6 @@ textarea {
 }
 
 @media (max-width: 900px) {
-  .settings-grid-two {
-    grid-template-columns: 1fr;
-  }
-
   .control-page .phone-shell {
     width: min(100%, 760px);
     padding: 12px;
@@ -1816,25 +1357,6 @@ textarea {
 }
 
 @media (max-width: 640px) {
-  .setup-shell {
-    padding: 12px 10px 22px;
-  }
-
-  .setup-nav {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .setup-nav a {
-    padding: 10px 12px;
-    text-align: center;
-  }
-
-  .settings-form {
-    margin-top: 14px;
-  }
-
   .control-page .phone-shell {
     padding: 10px 10px 20px;
     gap: 10px;
@@ -1872,10 +1394,7 @@ textarea {
   }
 
   .display-topline,
-  .display-footer,
-  .setup-header,
-  .section-title,
-  .form-actions {
+  .display-footer {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1883,37 +1402,6 @@ textarea {
   .connection {
     justify-content: center;
     text-align: center;
-  }
-
-  .part-row {
-    grid-template-columns: 1fr;
-  }
-
-  .part-input,
-  .part-readonly,
-  .row-remove {
-    grid-column: 1 / -1;
-  }
-
-  .part-readonly {
-    min-height: 0;
-    padding: 0;
-  }
-
-  .row-remove {
-    width: 100%;
-    justify-self: stretch;
-  }
-
-  .parts-list-head {
-    display: none;
-  }
-
-  /* Header is gone here, so name each number field inline instead. */
-  .part-caption {
-    display: block;
-    grid-column: 1 / -1;
-    margin-bottom: -4px;
   }
 
   .pair-actions {
@@ -1926,24 +1414,6 @@ textarea {
 
   .pair-copy-button {
     width: 100%;
-  }
-
-  .template-actions {
-    grid-template-columns: 1fr;
-  }
-
-  .start-row {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-tab {
-    min-height: 42px;
-    font-size: 14px;
-  }
-
-  .settings-card {
-    padding: 14px;
-    border-radius: 16px;
   }
 
   .part-picker-button,
@@ -2022,87 +1492,6 @@ textarea {
 
 .pairing-actions .action {
   flex: 1 1 auto;
-}
-
-.pin-current {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 14px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--inset);
-}
-
-.pin-current-label {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.pin-current-value {
-  flex: 1 1 auto;
-  color: var(--muted);
-  font-size: 18px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.18em;
-}
-
-.pin-current-value.revealed {
-  color: var(--text);
-  font-weight: 700;
-}
-
-.pin-row {
-  display: flex;
-  gap: 12px;
-  /* The label sits above the input, so aligning on the bottom edge puts the
-     button on exactly the same line as the field it acts on — no magic
-     numbers, whatever the label wraps to. */
-  align-items: flex-end;
-}
-
-.pin-row .field {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-/* .action is 56px tall by default, which towers over a 46px field. Match the
-   input it sits beside — the same override .form-actions already makes. */
-.pin-row .pin-save {
-  flex: 0 0 auto;
-  min-height: 46px;
-  padding: 0 20px;
-  border-radius: 12px;
-  font-size: 15px;
-}
-
-.pin-hint {
-  margin-top: 8px;
-}
-
-/* Empty until an action reports back, so it must not reserve a blank line. */
-.pin-message:empty {
-  display: none;
-}
-
-.pin-message {
-  margin-top: 8px;
-}
-
-/* Side by side leaves the input too narrow to read a PIN in on a phone. */
-@media (max-width: 560px) {
-  .pin-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .pin-row .pin-save {
-    width: 100%;
-  }
 }
 
 /* Confirmation window
@@ -2251,5 +1640,958 @@ textarea {
 
   .control-page #partsPanel {
     grid-column: 3;
+  }
+}
+
+/* Setup
+   -----
+   A settings console, not a form dump. Three ideas hold it together:
+
+   1. Every control lives in a row that names itself — a bold label, a plain
+      sentence saying what it does, and the control at the right. A hall has one
+      person setting this up, once, often years after whoever last touched it,
+      and a bare labelled box tells them nothing about the consequence.
+   2. Related rows are grouped into cards with a title and a one-line note, so
+      the page is four things rather than fourteen.
+   3. Nothing else is decorated. The one green on the page is the meeting-day
+      strip and the Save button; everything else is grey on near-black, which is
+      what makes those two readable at a glance.
+
+   Only /setup uses these rules — the controller shares the tokens, the buttons
+   and the notice, and nothing below. */
+
+.setup-shell {
+  width: min(100%, 900px);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 34px 20px 40px;
+}
+
+/* Masthead ---------------------------------------------------------------- */
+
+.setup-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.setup-kicker {
+  margin: 0 0 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.setup-title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1;
+}
+
+.setup-nav {
+  display: flex;
+  gap: 8px;
+}
+
+.setup-nav a {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0 16px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.setup-nav a:hover {
+  border-color: rgba(255, 255, 255, 0.26);
+  background: rgba(255, 255, 255, 0.07);
+  text-decoration: none;
+}
+
+/* Which schedule the clock will run today. Page-level rather than buried in a
+   card: it is the one line here that describes the present rather than a
+   setting, and it answers the question someone opens this page asking. */
+.today-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 18px;
+  border: 1px solid rgba(68, 220, 149, 0.2);
+  border-radius: 12px;
+  padding: 11px 14px;
+  background: rgba(68, 220, 149, 0.07);
+  color: #d6f3e5;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.today-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgba(68, 220, 149, 0.14);
+}
+
+/* Before the config answers there is nothing to affirm, so drop the green: the
+   strip states what it is doing rather than what the day is. setup.js clears
+   this the moment the clock reports a real schedule. */
+.today-strip.pending {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+}
+
+.today-strip.pending .today-dot {
+  background: var(--muted);
+  box-shadow: none;
+}
+
+/* Tabs -------------------------------------------------------------------- */
+
+/* Block flow rather than a grid, because the save bar below is sticky: a grid
+   item's containing block is its own grid area, so a sticky one has nowhere to
+   travel and simply never sticks. */
+.settings-form {
+  display: block;
+  margin: 0;
+}
+
+.settings-form > * + * {
+  margin-top: 16px;
+}
+
+/* Capped rather than full-bleed: three segments stretched across 900px read as
+   a nav bar, and this is a switch between three views of one form. */
+.settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  max-width: 430px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.settings-tab {
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.settings-tab:hover {
+  color: var(--text);
+}
+
+.settings-tab.active {
+  border-color: rgba(255, 255, 255, 0.09);
+  background: linear-gradient(180deg, #232b34, #1a212a);
+  color: var(--text);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.settings-tab:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.settings-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-panel[hidden] {
+  display: none;
+}
+
+/* Cards ------------------------------------------------------------------- */
+
+.settings-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 20px 22px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 140px),
+    linear-gradient(180deg, rgba(17, 22, 28, 0.92), rgba(11, 15, 20, 0.92));
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+}
+
+/* The Software card sits outside the form so it survives a tab switch, which
+   also puts it outside the form's own spacing rule. */
+.setup-shell > .settings-card {
+  margin-top: 16px;
+}
+
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.card-heading {
+  min-width: 0;
+}
+
+.card-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+}
+
+.card-note {
+  margin: 5px 0 0;
+  max-width: 62ch;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.card-head .small-button {
+  flex: none;
+}
+
+/* Setting rows ------------------------------------------------------------ */
+
+.card-rows {
+  display: grid;
+  margin-top: 16px;
+}
+
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
+  gap: 10px 28px;
+  align-items: center;
+}
+
+.card-rows > .setting-row {
+  padding: 16px 0;
+}
+
+.card-rows > .setting-row + .setting-row {
+  border-top: 1px solid var(--line);
+}
+
+.card-rows > .setting-row:first-child {
+  padding-top: 0;
+}
+
+.card-rows > .setting-row:last-child {
+  padding-bottom: 0;
+}
+
+/* A switch is 46px wide; giving it a 300px column would leave it stranded in
+   the middle of the row. */
+.setting-row-toggle {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.setting-text {
+  min-width: 0;
+}
+
+.setting-name {
+  display: block;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.setting-help,
+.setting-note {
+  margin: 4px 0 0;
+  max-width: 58ch;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.setting-control {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.setting-control-end {
+  justify-self: end;
+}
+
+/* Inputs ------------------------------------------------------------------ */
+
+/* Scoped to .setup-shell, not .setup-page. shared.js appends the pairing modal
+   straight to document.body, so a body-scoped input rule reaches inside it and
+   outranks .pairing-input — the modal would render one shape on /setup and
+   another on /control. The shell is the page's own markup and nothing else. */
+.setup-shell input[type="text"],
+.setup-shell input[type="url"],
+.setup-shell input[type="number"],
+.setup-shell input[type="time"],
+.setup-shell input[type="password"],
+.setup-shell select,
+.setup-shell textarea {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 10px 13px;
+  background: rgba(5, 8, 11, 0.55);
+  color: var(--text);
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.setup-shell select {
+  /* Drop the OS chevron for the one we draw, so a select and a text field read
+     as the same control at a glance. */
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 38px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%2395a0ad' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  cursor: pointer;
+}
+
+.setup-shell input:not([type="checkbox"]):hover,
+.setup-shell select:hover,
+.setup-shell textarea:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.setup-shell input:not([type="checkbox"]):focus,
+.setup-shell select:focus,
+.setup-shell textarea:focus {
+  outline: none;
+  border-color: rgba(68, 220, 149, 0.55);
+  background: rgba(5, 8, 11, 0.75);
+  box-shadow: 0 0 0 3px rgba(68, 220, 149, 0.14);
+}
+
+.setup-shell input::placeholder,
+.setup-shell textarea::placeholder {
+  color: rgba(149, 160, 173, 0.55);
+}
+
+.setup-shell input:disabled,
+.setup-shell select:disabled,
+.setup-shell textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Spinner arrows collide with the unit suffix and are useless on a phone; the
+   field is typed into, not nudged. */
+.setup-shell input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.setup-shell input[type="number"]::-webkit-outer-spin-button,
+.setup-shell input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.setup-shell textarea {
+  min-height: 150px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* The rules above would otherwise inflate the hidden meeting-type select. */
+.setup-shell .visually-hidden {
+  width: 1px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+}
+
+.input-affix {
+  position: relative;
+}
+
+/* Scoped to .setup-shell to outweigh the padding shorthand on the base field
+   rule, which is one attribute selector heavier than a bare `.input-affix
+   input`. */
+.setup-shell .input-affix input {
+  padding-right: 48px;
+}
+
+.input-affix-unit {
+  position: absolute;
+  top: 50%;
+  right: 13px;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+/* A native checkbox is the wrong shape for "this happens every week without
+   anyone doing anything" — a switch says on/off state, which is what it is.
+   Built off the checkbox itself so it stays a form control the page can read. */
+.switch {
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 28px;
+  margin: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.08);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #eef2f6;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  transition: transform 160ms ease;
+}
+
+.switch:checked {
+  border-color: transparent;
+  background: var(--green);
+}
+
+.switch:checked::after {
+  transform: translateX(18px);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* Disclosures ------------------------------------------------------------- */
+
+.disclosure {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  list-style: none;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.disclosure > summary::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  border-radius: 1px;
+  transform: translateY(-1px) rotate(-45deg);
+  transition: transform 160ms ease;
+}
+
+.disclosure[open] > summary::before {
+  transform: translateY(-3px) rotate(45deg);
+}
+
+.disclosure > summary:hover {
+  color: var(--text);
+}
+
+.disclosure > summary:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.disclosure-body > .setting-row {
+  padding-top: 14px;
+}
+
+/* Generated rows (start times, items) still label their fields this way. */
+.setup-shell .field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+}
+
+.setup-shell .field > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Midweek import ---------------------------------------------------------- */
+
+.import-status {
+  margin: 14px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.24);
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.manual-import-body {
+  display: grid;
+  gap: 14px;
+  padding-top: 14px;
+}
+
+.template-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.template-actions-single {
+  grid-template-columns: minmax(0, 250px);
+}
+
+.template-actions .small-button {
+  min-height: 42px;
+}
+
+/* Controller PIN ---------------------------------------------------------- */
+
+.pin-current {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 9px 9px 9px 14px;
+  background: rgba(0, 0, 0, 0.24);
+}
+
+.pin-current-label {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pin-current-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pin-current-value.revealed {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.pin-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.pin-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pin-save {
+  flex: none;
+  min-height: 44px;
+  padding: 0 16px;
+}
+
+/* Empty until an action reports back, so it must not reserve a blank line. */
+.pin-message:empty {
+  display: none;
+}
+
+/* Start times and items --------------------------------------------------- */
+
+.starts-list,
+.parts-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.start-row,
+.part-row {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.018);
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.start-row:hover,
+.part-row:hover {
+  border-color: rgba(255, 255, 255, 0.13);
+  background: rgba(255, 255, 255, 0.032);
+}
+
+/* Labels sit above the fields, so the row is aligned on the fields' baseline
+   rather than the middle of the whole cell — otherwise Remove floats up
+   opposite the labels. */
+.start-row {
+  grid-template-columns: minmax(0, 150px) minmax(0, 128px) minmax(0, 1fr) 92px;
+  align-items: end;
+}
+
+/* The trailing 92px is the Remove column, fixed rather than auto so the item
+   list and its column headings share one set of tracks. */
+.part-row {
+  grid-template-columns: minmax(0, 1fr) 110px 118px 92px;
+  align-items: center;
+}
+
+/* Names the item columns once, above the list, instead of on every row. Padding
+   matches a row's 12px plus its 1px border so the headings sit over the fields. */
+.parts-list-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 118px 92px;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 0 13px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.parts-list-head span:last-child {
+  visibility: hidden;
+}
+
+.part-title {
+  min-width: 0;
+}
+
+/* Closing bell is derived by the WOL import, not chosen. Show it, but render it
+   as text so it never reads as a field the operator is expected to fill in. */
+.part-readonly {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The shared column header names these fields on wide screens. It is hidden at
+   the narrow breakpoint, where these captions take over — a bare number box
+   gives no clue whether it wants minutes or closing-bell seconds. */
+.part-caption {
+  display: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Quiet per-row delete: neutral until hover, so a form full of these doesn't
+   read as a wall of danger. */
+.row-remove {
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0 14px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+}
+
+.row-remove:hover {
+  border-color: rgba(244, 95, 87, 0.35);
+  background: rgba(244, 95, 87, 0.08);
+  color: var(--red);
+}
+
+.row-remove:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* Save bar ---------------------------------------------------------------- */
+
+/* Sticky, because the Items tab is as long as the meeting and nothing on this
+   page is saved until this button is pressed. It is the last child of the form,
+   so at rest it sits below the content rather than over it. */
+.form-actions {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  /* Wraps rather than squeezing: a long status ("Could not load settings —
+     check the connection and reload.") would otherwise crush both itself and
+     the button to min-content on a phone and inflate the bar into a block over
+     the page. Given a basis wider than any phone, it takes its own line and the
+     button drops below it, still right-aligned. */
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: rgba(11, 15, 20, 0.82);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+}
+
+.form-actions .action {
+  min-height: 46px;
+  border-radius: 11px;
+  padding: 0 26px;
+  font-size: 15px;
+}
+
+.save-status {
+  flex: 1 1 260px;
+  min-width: 0;
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.save-status.error {
+  color: var(--red);
+}
+
+/* Nothing to report yet: no line of its own, no flex basis reserved. */
+.save-status:empty {
+  display: none;
+}
+
+/* Software ---------------------------------------------------------------- */
+
+.update-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin-top: 16px;
+}
+
+.update-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.update-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Beside the Update button it is an inline note, not the wrapping bar's
+   full-width line. */
+.update-action .save-status {
+  flex: 0 1 auto;
+  margin: 0;
+}
+
+.update-action .action {
+  min-height: 44px;
+  border-radius: 11px;
+  padding: 0 20px;
+  font-size: 15px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Narrow ------------------------------------------------------------------ */
+
+@media (max-width: 760px) {
+  .setup-shell {
+    padding: 22px 14px 30px;
+  }
+
+  .setup-header {
+    align-items: flex-start;
+  }
+
+  .setup-title {
+    font-size: 26px;
+  }
+
+  .setup-nav {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .setup-nav a {
+    justify-content: center;
+  }
+
+  .settings-tabs {
+    max-width: none;
+  }
+
+  /* Match the 44px every other control on this page keeps for a thumb. */
+  .settings-tab {
+    min-height: 44px;
+  }
+
+  .settings-card {
+    border-radius: 14px;
+    padding: 16px 15px;
+  }
+}
+
+@media (max-width: 620px) {
+  /* One column: the label, its sentence, then the control under both. Side by
+     side, a 300px control leaves the help text at four words a line. */
+  .setting-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  /* Except the switch, which stays beside its label — the phone convention, and
+     it keeps the row readable as a single on/off statement. */
+  .setting-row-toggle {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .start-row,
+  .part-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .part-input,
+  .part-readonly,
+  .row-remove {
+    grid-column: 1 / -1;
+  }
+
+  .part-readonly {
+    min-height: 0;
+    padding: 0;
+  }
+
+  .row-remove {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .parts-list-head {
+    display: none;
+  }
+
+  /* Header is gone here, so name each number field inline instead. */
+  .part-caption {
+    display: block;
+    grid-column: 1 / -1;
+    margin-bottom: -4px;
+  }
+
+  .template-actions,
+  .template-actions-single {
+    grid-template-columns: 1fr;
+  }
+
+  /* Side by side leaves too little of the row for the PIN itself once the rest
+     of the page has already stacked. */
+  .pin-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pin-row .pin-save {
+    width: 100%;
+  }
+
+  .form-actions .action {
+    padding: 0 20px;
   }
 }

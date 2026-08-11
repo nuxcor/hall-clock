@@ -9,6 +9,7 @@
   const autoImportInput = document.getElementById("autoImportInput");
   const autoImportStatus = document.getElementById("autoImportStatus");
   const scheduleModeText = document.getElementById("scheduleModeText");
+  const todayStrip = document.getElementById("todayStrip");
   const startsList = document.getElementById("startsList");
   const partsList = document.getElementById("partsList");
   const saveStatus = document.getElementById("saveStatus");
@@ -57,9 +58,18 @@
     }
   }
 
+  // The strip starts neutral and only turns green once the clock has actually
+  // told us which schedule is live — it sits at the top of the page, where a
+  // guess would read as confirmed state.
   function renderMeetingType(meetingType) {
     const title = meetingType === "weekend" ? "Weekend meeting is active today" : "Midweek meeting is active today";
     if (scheduleModeText) scheduleModeText.textContent = title;
+    if (todayStrip) todayStrip.classList.remove("pending");
+  }
+
+  function setSaveStatus(message, isError) {
+    saveStatus.textContent = message;
+    saveStatus.classList.toggle("error", Boolean(isError));
   }
 
   function activateTab(name, focus) {
@@ -293,7 +303,7 @@
   });
 
   async function importMidweekUrl(apply) {
-    saveStatus.textContent = apply ? "Importing..." : "Fetching preview...";
+    setSaveStatus(apply ? "Importing..." : "Fetching preview...");
     try {
       const result = await WallClock.postJSON("/api/import/midweek", {
         url: midweekUrlInput.value,
@@ -305,16 +315,16 @@
         await refreshMeetingType();
       }
       tokenWarning.classList.add("hidden");
-      saveStatus.textContent = apply ? "Imported and saved" : `Previewed ${parts.length} items`;
+      setSaveStatus(apply ? "Imported and saved" : `Previewed ${parts.length} items`);
     } catch (error) {
       tokenWarning.classList.remove("hidden");
-      saveStatus.textContent = "Could not import URL";
+      setSaveStatus("Could not import URL", true);
       console.error(error);
     }
   }
 
   async function importMidweekText(apply) {
-    saveStatus.textContent = apply ? "Importing pasted timings..." : "Parsing pasted timings...";
+    setSaveStatus(apply ? "Importing pasted timings..." : "Parsing pasted timings...");
     try {
       const result = await WallClock.postJSON("/api/import/midweek-text", {
         text: document.getElementById("midweekTextInput").value,
@@ -326,10 +336,10 @@
         await refreshMeetingType();
       }
       tokenWarning.classList.add("hidden");
-      saveStatus.textContent = apply ? "Imported and saved" : `Parsed ${parts.length} items`;
+      setSaveStatus(apply ? "Imported and saved" : `Parsed ${parts.length} items`);
     } catch (error) {
       tokenWarning.classList.remove("hidden");
-      saveStatus.textContent = "Could not parse pasted timings";
+      setSaveStatus("Could not parse pasted timings", true);
       console.error(error);
     }
   }
@@ -345,11 +355,47 @@
     renderParts();
   });
 
+  // The form carries `novalidate`, so these two are checked here instead. Left
+  // to the browser, a bad value in either one blocks submission outright — and
+  // both can be sitting inside a collapsed <details> or a hidden tab panel,
+  // where nothing can be focused and no bubble can be drawn. The operator would
+  // press Save and watch nothing at all happen, on every press.
+  function fieldProblem() {
+    const url = advertisedBaseUrlInput.value.trim();
+    if (url && !/^https?:\/\/[^\s/]+/i.test(url)) {
+      return { input: advertisedBaseUrlInput, message: "Controller URL must start with http:// or https://" };
+    }
+    const minutes = Number(prestartMinutesInput.value);
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 30) {
+      return { input: prestartMinutesInput, message: "Pre-meeting countdown must be a whole number of minutes, 1 to 30." };
+    }
+    return null;
+  }
+
+  // Saying which field is wrong is no use if the field is out of sight: open
+  // its tab and its disclosure, then put the cursor in it.
+  function revealField(input) {
+    const panel = input.closest("[data-settings-panel]");
+    if (panel) activateTab(panel.dataset.settingsPanel, false);
+    let details = input.closest("details");
+    while (details) {
+      details.open = true;
+      details = details.parentElement ? details.parentElement.closest("details") : null;
+    }
+    input.focus();
+  }
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     readPartsFromForm();
     readStartsFromForm();
-    saveStatus.textContent = "Saving...";
+    const problem = fieldProblem();
+    if (problem) {
+      revealField(problem.input);
+      setSaveStatus(problem.message, true);
+      return;
+    }
+    setSaveStatus("Saving...");
     try {
       await WallClock.postJSON("/api/config", {
         deviceName: deviceNameInput.value,
@@ -369,14 +415,14 @@
       const savedConfig = await fetchConfig();
       parts = savedConfig.schedule || parts;
       renderParts();
-      saveStatus.textContent = "Saved";
+      setSaveStatus("Saved");
       tokenWarning.classList.add("hidden");
       if (autoImportInput.checked) {
         watchAutoImport(15);
       }
     } catch (error) {
       tokenWarning.classList.remove("hidden");
-      saveStatus.textContent = "Could not save";
+      setSaveStatus("Could not save", true);
       console.error(error);
     }
   });
@@ -450,6 +496,16 @@
     }
   });
 
+  // The PIN field lives inside the settings form, so the phone keyboard's Go key
+  // would otherwise submit the whole form — which posts every setting except the
+  // PIN, then reports "Saved". An elder would walk away from an unprotected
+  // clock believing they had just locked it.
+  pinInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    setPinBtn.click();
+  });
+
   (async () => {
     // Setup pairs the same way control does. It matters more here: a browser
     // that never visited /control (or lost its per-origin token to a hostname
@@ -459,7 +515,10 @@
     refreshPinStatus();
     load().catch((error) => {
       console.error(error);
-      saveStatus.textContent = "Could not load settings — check the connection and reload.";
+      setSaveStatus("Could not load settings — check the connection and reload.", true);
+      // Leave the strip neutral and say so: the schedule was never read, and
+      // guessing one here is worse than admitting the clock did not answer.
+      if (scheduleModeText) scheduleModeText.textContent = "Could not read today’s schedule";
     });
   })();
 })();

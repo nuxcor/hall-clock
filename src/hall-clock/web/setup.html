@@ -17,151 +17,242 @@
   <body class="setup-page">
     <main class="setup-shell">
       <header class="setup-header">
-        <nav class="setup-nav">
-          <a href="/pair">Pair</a>
-          <a href="/control">Control</a>
+        <div class="setup-identity">
+          <p class="setup-kicker">Hall Clock</p>
+          <h1 class="setup-title">Setup</h1>
+        </div>
+        <nav class="setup-nav" aria-label="Other pages">
+          <a href="/pair">Pair a phone</a>
+          <a href="/control">Controller</a>
         </nav>
       </header>
+
+      <!-- Neutral until the config actually answers. Asserting a meeting day at
+           the top of the page before anything has been read would be a
+           confident lie on the one screen where being wrong costs a meeting. -->
+      <p id="todayStrip" class="today-strip pending" role="status">
+        <span class="today-dot" aria-hidden="true"></span>
+        <span id="scheduleModeText">Checking today’s schedule…</span>
+      </p>
 
       <section id="tokenWarning" class="notice hidden">
         Open this page from a paired controller or scan from <strong>/pair</strong>.
       </section>
 
-      <form id="setupForm" class="settings-form">
+      <!-- novalidate: two of these fields can be inside a collapsed <details> or
+           a hidden tab panel, where a browser that refuses to submit cannot
+           focus the offender or show its bubble — Save would simply do nothing.
+           setup.js checks them itself and says which field is wrong. -->
+      <form id="setupForm" class="settings-form" novalidate>
         <div class="settings-tabs" role="tablist" aria-label="Settings sections">
           <button class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="settingsPanel" data-settings-tab="settings">Settings</button>
           <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="startsPanel" data-settings-tab="starts">Start times</button>
           <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="partsPanel" data-settings-tab="parts">Items</button>
         </div>
 
-        <section id="settingsPanel" class="settings-card settings-panel active" role="tabpanel" data-settings-panel="settings">
-          <div class="section-title">
-            <h2>Settings</h2>
-          </div>
-
-          <div class="settings-grid-two">
-            <label class="field">
-              <span>Device name</span>
-              <input id="deviceNameInput" name="deviceName" type="text" autocomplete="off" maxlength="60">
-            </label>
-
-            <label class="field">
-              <span>Automatic pre-meeting countdown (minutes)</span>
-              <input id="prestartMinutesInput" name="prestartMinutes" type="number" min="1" max="30" step="1">
-            </label>
-          </div>
-
-          <div class="setup-status-row">
-            <span class="status-pill" id="scheduleModeText">Midweek meeting is active today</span>
-          </div>
-
-          <details class="advanced-field">
-            <summary>Controller URL override</summary>
-            <label class="field">
-              <span>Advertised controller URL</span>
-              <input id="advertisedBaseUrlInput" name="advertisedBaseUrl" type="url" placeholder="http://hallclock.local">
-              <span class="field-hint">Usually leave blank.</span>
-            </label>
-          </details>
-
-          <select id="meetingTypeInput" name="meetingType" class="visually-hidden" disabled>
-            <option value="midweek">Midweek meeting</option>
-            <option value="weekend">Weekend meeting</option>
-          </select>
-
-          <div class="section-title settings-subsection">
-            <h2>Controller PIN</h2>
-          </div>
-          <p id="pinStatus" class="notice hidden"></p>
-          <div id="pinCurrentRow" class="pin-current hidden">
-            <span class="pin-current-label">Current PIN</span>
-            <span id="pinCurrentValue" class="pin-current-value">••••••</span>
-            <button id="pinRevealBtn" class="small-button" type="button">Show</button>
-          </div>
-          <div class="pin-row">
-            <label class="field">
-              <span>New PIN</span>
-              <input id="pinInput" type="password" inputmode="numeric" autocomplete="new-password"
-                     maxlength="32" placeholder="••••••">
-            </label>
-            <button id="setPinBtn" class="action action-subtle pin-save" type="button">Save PIN</button>
-          </div>
-          <p class="field-hint pin-hint">
-            Each phone enters this once and stays paired afterwards. Six digits
-            or more is worth it — keep a copy somewhere the elders can find.
-          </p>
-          <p id="pinMessage" class="field-hint pin-message"></p>
-
-          <div class="section-title settings-subsection">
-            <h2>Midweek import</h2>
-          </div>
-          <label class="toggle-row">
-            <input id="autoImportInput" type="checkbox">
-            <span>Automatically import each week’s timings from WOL.</span>
-          </label>
-          <p id="autoImportStatus" class="import-status">Nothing imported yet.</p>
-          <details class="manual-import">
-            <summary>Manual fallback</summary>
-            <div class="manual-import-body">
-              <label class="field">
-                <span>WOL midweek URL</span>
-                <input id="midweekUrlInput" type="url" placeholder="https://wol.jw.org/en/wol/d/r1/lp-e/...">
-              </label>
-              <div class="template-actions">
-                <button id="previewMidweekUrlBtn" class="small-button" type="button">Preview imported timings</button>
-                <button id="applyMidweekUrlBtn" class="small-button" type="button">Import URL now</button>
+        <section id="settingsPanel" class="settings-panel active" role="tabpanel" data-settings-panel="settings">
+          <article class="settings-card">
+            <div class="card-head">
+              <div class="card-heading">
+                <h2>This clock</h2>
+                <p class="card-note">How the hall knows which display it is looking at.</p>
               </div>
-              <textarea id="midweekTextInput" rows="8" placeholder="Opening Comments (1 min.)&#10;Spiritual Gems (10 min.)&#10;Bible Reading (4 min.)"></textarea>
-              <button id="parseMidweekBtn" class="small-button" type="button">Preview pasted timings</button>
             </div>
-          </details>
+
+            <div class="card-rows">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <label class="setting-name" for="deviceNameInput">Device name</label>
+                  <p id="deviceNameHelp" class="setting-help">Shown on the display and on every controller that pairs with it.</p>
+                </div>
+                <div class="setting-control">
+                  <input id="deviceNameInput" name="deviceName" type="text" autocomplete="off" maxlength="60"
+                         aria-describedby="deviceNameHelp">
+                </div>
+              </div>
+
+              <div class="setting-row">
+                <div class="setting-text">
+                  <label class="setting-name" for="prestartMinutesInput">Pre-meeting countdown (minutes)</label>
+                  <p id="prestartHelp" class="setting-help">How many minutes before the start time the display begins counting down. 1 to 30.</p>
+                </div>
+                <div class="setting-control">
+                  <div class="input-affix">
+                    <input id="prestartMinutesInput" name="prestartMinutes" type="number" min="1" max="30" step="1"
+                           aria-describedby="prestartHelp">
+                    <span class="input-affix-unit" aria-hidden="true">min</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <details class="disclosure">
+              <summary>Controller URL override</summary>
+              <div class="disclosure-body">
+                <div class="setting-row">
+                  <div class="setting-text">
+                    <label class="setting-name" for="advertisedBaseUrlInput">Advertised controller URL</label>
+                    <p id="advertisedHelp" class="setting-help">The address printed on the pairing code. Usually leave this blank.</p>
+                  </div>
+                  <div class="setting-control">
+                    <input id="advertisedBaseUrlInput" name="advertisedBaseUrl" type="url" placeholder="http://hallclock.local"
+                           aria-describedby="advertisedHelp">
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <select id="meetingTypeInput" name="meetingType" class="visually-hidden" disabled>
+              <option value="midweek">Midweek meeting</option>
+              <option value="weekend">Weekend meeting</option>
+            </select>
+          </article>
+
+          <article class="settings-card">
+            <div class="card-head">
+              <div class="card-heading">
+                <h2>Controller PIN</h2>
+                <p class="card-note">The one code a phone types before it can drive the clock.</p>
+              </div>
+            </div>
+
+            <p id="pinStatus" class="notice hidden"></p>
+
+            <div id="pinCurrentRow" class="pin-current hidden">
+              <span class="pin-current-label">Current PIN</span>
+              <span id="pinCurrentValue" class="pin-current-value">••••••</span>
+              <button id="pinRevealBtn" class="small-button" type="button">Show</button>
+            </div>
+
+            <div class="card-rows">
+              <div class="setting-row">
+                <div class="setting-text">
+                  <label class="setting-name" for="pinInput">New PIN</label>
+                  <p id="pinHelp" class="setting-help">
+                    Each phone enters this once and stays paired afterwards. Six digits
+                    or more is worth it — keep a copy somewhere the elders can find.
+                  </p>
+                </div>
+                <div class="setting-control">
+                  <div class="pin-row">
+                    <input id="pinInput" type="password" inputmode="numeric" autocomplete="new-password"
+                           maxlength="32" placeholder="••••••" aria-describedby="pinHelp">
+                    <button id="setPinBtn" class="small-button pin-save" type="button">Save PIN</button>
+                  </div>
+                  <p id="pinMessage" class="setting-note pin-message"></p>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="settings-card">
+            <div class="card-head">
+              <div class="card-heading">
+                <h2>Midweek import</h2>
+                <p class="card-note">Where this week’s items and timings come from.</p>
+              </div>
+            </div>
+
+            <div class="card-rows">
+              <div class="setting-row setting-row-toggle">
+                <div class="setting-text">
+                  <label class="setting-name" for="autoImportInput">Import from WOL automatically</label>
+                  <p id="autoImportHelp" class="setting-help">Pulls each week’s timings from the Watchtower Online Library on its own.</p>
+                </div>
+                <div class="setting-control setting-control-end">
+                  <input id="autoImportInput" class="switch" type="checkbox" aria-describedby="autoImportHelp">
+                </div>
+              </div>
+            </div>
+
+            <p id="autoImportStatus" class="import-status">Nothing imported yet.</p>
+
+            <details class="disclosure manual-import">
+              <summary>Manual fallback</summary>
+              <div class="disclosure-body manual-import-body">
+                <label class="field">
+                  <span>WOL midweek URL</span>
+                  <input id="midweekUrlInput" type="url" placeholder="https://wol.jw.org/en/wol/d/r1/lp-e/...">
+                </label>
+                <div class="template-actions">
+                  <button id="previewMidweekUrlBtn" class="small-button" type="button">Preview imported timings</button>
+                  <button id="applyMidweekUrlBtn" class="small-button" type="button">Import URL now</button>
+                </div>
+                <label class="field">
+                  <span>Or paste the timings</span>
+                  <textarea id="midweekTextInput" rows="8" placeholder="Opening Comments (1 min.)&#10;Spiritual Gems (10 min.)&#10;Bible Reading (4 min.)"></textarea>
+                </label>
+                <div class="template-actions template-actions-single">
+                  <button id="parseMidweekBtn" class="small-button" type="button">Preview pasted timings</button>
+                </div>
+              </div>
+            </details>
+          </article>
+
         </section>
 
-        <section id="startsPanel" class="start-times-panel settings-card settings-panel" role="tabpanel" data-settings-panel="starts" hidden>
-          <div class="section-title">
-            <h2>Meeting start times</h2>
-            <button id="addStartBtn" class="small-button" type="button">Add start</button>
-          </div>
-          <div id="startsList" class="starts-list"></div>
+        <section id="startsPanel" class="settings-panel" role="tabpanel" data-settings-panel="starts" hidden>
+          <article class="settings-card">
+            <div class="card-head">
+              <div class="card-heading">
+                <h2>Meeting start times</h2>
+                <p class="card-note">One row per meeting the hall holds. The clock picks today’s row automatically.</p>
+              </div>
+              <button id="addStartBtn" class="small-button" type="button">Add start</button>
+            </div>
+            <div id="startsList" class="starts-list"></div>
+          </article>
         </section>
 
-        <section id="partsPanel" class="settings-card settings-panel" role="tabpanel" data-settings-panel="parts" hidden>
-          <div class="section-title">
-            <h2>Meeting items</h2>
-            <button id="addPartBtn" class="small-button" type="button">Add item</button>
-          </div>
-          <div class="parts-list-head" aria-hidden="true">
-            <span>Item</span>
-            <span>Minutes</span>
-            <span>Closing bell</span>
-            <span></span>
-          </div>
-          <div id="partsList" class="parts-list"></div>
+        <section id="partsPanel" class="settings-panel" role="tabpanel" data-settings-panel="parts" hidden>
+          <article class="settings-card">
+            <div class="card-head">
+              <div class="card-heading">
+                <h2>Meeting items</h2>
+                <p class="card-note">The running order the controller steps through. Imports overwrite this list.</p>
+              </div>
+              <button id="addPartBtn" class="small-button" type="button">Add item</button>
+            </div>
+            <div class="parts-list-head" aria-hidden="true">
+              <span>Item</span>
+              <span>Minutes</span>
+              <span>Closing bell</span>
+              <span></span>
+            </div>
+            <div id="partsList" class="parts-list"></div>
+          </article>
         </section>
 
         <div class="form-actions">
-          <button class="action action-primary" type="submit">Save settings</button>
           <span id="saveStatus" class="save-status"></span>
+          <button class="action action-primary" type="submit">Save settings</button>
         </div>
       </form>
 
-      <!-- Hidden unless the box has the updater wired up (see update.go). -->
-      <section id="updateCard" class="settings-card hidden">
-        <div class="section-title">
-          <h2>Software</h2>
+      <!-- Hidden unless the box has the updater wired up (see update.go). Kept
+           outside the tab panels on purpose: an update takes minutes and
+           restarts the clock, and an operator who switches to Items while it
+           downloads must not lose sight of it. -->
+      <article id="updateCard" class="settings-card hidden">
+        <div class="card-head">
+          <div class="card-heading">
+            <h2>Software</h2>
+            <p class="card-note">Updates restart the clock, so they wait for an idle timer.</p>
+          </div>
           <button id="updateCheckBtn" class="small-button" type="button">Check again</button>
         </div>
 
-        <div class="setup-status-row">
-          <span class="status-pill" id="updateVersion">Checking...</span>
-          <span class="status-note" id="updateNote"></span>
+        <div class="update-row">
+          <div class="update-state">
+            <span class="status-pill" id="updateVersion">Checking...</span>
+            <span class="status-note" id="updateNote"></span>
+          </div>
+          <div class="update-action">
+            <span id="updateStatus" class="save-status"></span>
+            <button id="updateBtn" class="action action-primary" type="button" disabled>Update</button>
+          </div>
         </div>
-
-        <div class="form-actions">
-          <button id="updateBtn" class="action action-primary" type="button" disabled>Update</button>
-          <span id="updateStatus" class="save-status"></span>
-        </div>
-      </section>
+      </article>
     </main>
     <script src="/assets/shared.js"></script>
     <script src="/assets/setup.js"></script>
