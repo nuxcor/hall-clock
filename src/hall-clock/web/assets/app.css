@@ -95,8 +95,16 @@ textarea {
   border: 0;
 }
 
+/* The display is a television. Any pointer that reaches it — a mouse left
+   plugged into the Pi, a wireless receiver nudged on the shelf, a KVM handing
+   focus over — parks an arrow on the wall for the rest of the meeting, and the
+   Pi is usually somewhere nobody can reach mid-meeting to move it.
+   cursor:none costs nothing and, unlike unclutter, needs no package and works
+   whether the Pi boots X11 or Wayland. Only this page: /control and /setup are
+   touched by people who need to see where they are pointing. */
 .display-page {
   overflow: hidden;
+  cursor: none;
 }
 
 .display-shell {
