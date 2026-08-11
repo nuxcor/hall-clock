@@ -251,6 +251,16 @@ fi
 # root deliberately after checking its contents.
 chown -R root:root "$APP_DIR"
 
+# The kiosk script hides the X pointer with unclutter when it is present, but an
+# existing box has never run install.sh again, so nothing else would ever put it
+# there. Best-effort and never fatal: an update must not fail over a cosmetic
+# package, and a box with no apt mirror reachable still gets the new binary.
+if ! command -v unclutter >/dev/null 2>&1; then
+  log "installing unclutter to hide the pointer on the display"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y unclutter >/dev/null 2>&1 ||
+    log "could not install unclutter; the pointer may show on the display"
+fi
+
 systemctl daemon-reload
 systemctl enable hall-clock-update.timer hall-clock-update.path hall-clock-housekeeping.timer >/dev/null
 systemctl restart hall-clock-update.timer hall-clock-update.path hall-clock-housekeeping.timer

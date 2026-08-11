@@ -91,6 +91,21 @@ ensure_caddy() {
   apt-get install -y caddy
 }
 
+# Hides the X pointer on the display (see hall-clock-kiosk.sh). Not fatal if it
+# will not install: the kiosk script skips it when absent, and the display page
+# still carries cursor:none.
+ensure_unclutter() {
+  command -v unclutter >/dev/null 2>&1 && return 0
+  echo "unclutter not found; installing with apt..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get install -y unclutter && return 0
+  # Stale package lists are the usual reason the first attempt fails on a Pi
+  # that has not seen apt in months. ensure_caddy only updates them when Caddy
+  # is missing too, which on an existing box it is not.
+  apt-get update && apt-get install -y unclutter && return 0
+  echo "could not install unclutter; the pointer may show on the display"
+}
+
 if [ ! -f "$BIN_SRC" ]; then
   echo "Missing binary at $BIN_SRC"
   echo "Build and copy it first, or pass the binary path: sudo ./install.sh /path/to/hall-clock"
@@ -98,6 +113,7 @@ if [ ! -f "$BIN_SRC" ]; then
 fi
 
 ensure_caddy
+ensure_unclutter
 
 if ! systemctl list-unit-files caddy.service >/dev/null 2>&1; then
   echo "Caddy service not found."
