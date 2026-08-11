@@ -2380,12 +2380,16 @@ textarea {
 
 /* Sticky, because the Items tab is as long as the meeting and nothing on this
    page is saved until this button is pressed. It is the last child of the form,
-   so at rest it sits below the content rather than over it. */
+   so at rest it sits below the content rather than over it.
+
+   Hidden until it has a job: a permanently parked Save is an instruction with
+   nothing behind it, and its arrival is then a real signal that work is
+   outstanding. Two ways in, below. */
 .form-actions {
   position: sticky;
   bottom: 12px;
   z-index: 5;
-  display: flex;
+  display: none;
   /* Wraps rather than squeezing: a long status ("Could not load settings —
      check the connection and reload.") would otherwise crush both itself and
      the button to min-content on a phone and inflate the bar into a block over
@@ -2402,6 +2406,13 @@ textarea {
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(14px) saturate(1.2);
   -webkit-backdrop-filter: blur(14px) saturate(1.2);
+}
+
+/* Either the form is dirty (setup.js sets the class), or there is a message to
+   carry — which is how a failed load still gets to say so on an untouched form. */
+.settings-form.is-dirty .form-actions,
+.form-actions:has(> .save-status:not(:empty)) {
+  display: flex;
 }
 
 .form-actions .action {

@@ -67,10 +67,46 @@
     if (todayStrip) todayStrip.classList.remove("pending");
   }
 
-  function setSaveStatus(message, isError) {
+  // The save bar exists only while there is something to save or something to
+  // report. Nothing is written to the clock until Save is pressed, so a bar
+  // that is always there is an instruction the operator can never satisfy —
+  // and one that appears is a signal worth reading.
+  let dirty = false;
+  let statusTimer = null;
+
+  function setSaveStatus(message, isError, transient) {
+    clearTimeout(statusTimer);
     saveStatus.textContent = message;
     saveStatus.classList.toggle("error", Boolean(isError));
+    // "Saved" would otherwise keep the bar on screen long after the changes it
+    // refers to are gone. Retire it — and fall back to the pending state rather
+    // than to nothing, in case edits are still outstanding.
+    if (transient) {
+      statusTimer = setTimeout(() => {
+        setSaveStatus(dirty ? "Unsaved changes" : "");
+      }, 4000);
+    }
   }
+
+  function setDirty(value) {
+    if (dirty === value) return;
+    dirty = value;
+    form.classList.toggle("is-dirty", value);
+    if (value) setSaveStatus("Unsaved changes");
+    else if (saveStatus.textContent === "Unsaved changes") setSaveStatus("");
+  }
+
+  // Typing counts as an edit; typing a PIN does not. The PIN field sits in this
+  // form for layout only — its own button writes it, and Save settings never
+  // carries it.
+  ["input", "change"].forEach((type) => {
+    form.addEventListener(type, (event) => {
+      if (event.target.id === "pinInput") return;
+      // An edit is also the answer to whatever the last complaint was.
+      if (dirty && saveStatus.classList.contains("error")) setSaveStatus("Unsaved changes");
+      setDirty(true);
+    });
+  });
 
   function activateTab(name, focus) {
     tabButtons.forEach((button) => {
@@ -249,6 +285,7 @@
     readPartsFromForm();
     parts.push({ title: `Item ${parts.length + 1}`, durationSeconds: 300, closingSeconds: 120 });
     renderParts();
+    setDirty(true);
   });
 
   tabButtons.forEach((button, index) => {
@@ -277,6 +314,7 @@
       midweekUrl: "",
     });
     renderStarts();
+    setDirty(true);
   });
 
   startsList.addEventListener("click", (event) => {
@@ -288,6 +326,7 @@
       meetingStarts = defaultMeetingStarts("19:30");
     }
     renderStarts();
+    setDirty(true);
   });
 
   document.getElementById("parseMidweekBtn").addEventListener("click", () => {
@@ -315,7 +354,8 @@
         await refreshMeetingType();
       }
       tokenWarning.classList.add("hidden");
-      setSaveStatus(apply ? "Imported and saved" : `Previewed ${parts.length} items`);
+      if (!apply) setDirty(true);
+      setSaveStatus(apply ? "Imported and saved" : `Previewed ${parts.length} items`, false, true);
     } catch (error) {
       tokenWarning.classList.remove("hidden");
       setSaveStatus("Could not import URL", true);
@@ -336,7 +376,8 @@
         await refreshMeetingType();
       }
       tokenWarning.classList.add("hidden");
-      setSaveStatus(apply ? "Imported and saved" : `Parsed ${parts.length} items`);
+      if (!apply) setDirty(true);
+      setSaveStatus(apply ? "Imported and saved" : `Parsed ${parts.length} items`, false, true);
     } catch (error) {
       tokenWarning.classList.remove("hidden");
       setSaveStatus("Could not parse pasted timings", true);
@@ -353,6 +394,7 @@
       parts.push({ title: "Item 1", durationSeconds: 300, closingSeconds: 120 });
     }
     renderParts();
+    setDirty(true);
   });
 
   // The form carries `novalidate`, so these two are checked here instead. Left
@@ -415,7 +457,8 @@
       const savedConfig = await fetchConfig();
       parts = savedConfig.schedule || parts;
       renderParts();
-      setSaveStatus("Saved");
+      setDirty(false);
+      setSaveStatus("Saved", false, true);
       tokenWarning.classList.add("hidden");
       if (autoImportInput.checked) {
         watchAutoImport(15);
