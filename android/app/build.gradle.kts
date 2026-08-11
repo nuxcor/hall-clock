@@ -25,12 +25,15 @@ android {
     defaultConfig {
         applicationId = "com.nuxcor.hallclock"
         minSdk = 26
-        // targetSdk stays a release behind compileSdk: 36 makes Android 16's
-        // edge-to-edge non-optional, and the inset handling in MainActivity has
-        // only been checked on hardware up to 35. Bump it with a phone in hand.
-        targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // Play stops accepting updates below 36 from Aug 30, 2026, so this is no
+        // longer ours to defer. The two things 36 forces are already true here:
+        // edge-to-edge (MainActivity pads the root by the bar insets, and has
+        // done since targetSdk 35 made it mandatory on Android 15), and back
+        // handled through OnBackPressedDispatcher rather than onBackPressed(),
+        // which 36 stops calling.
+        targetSdk = 36
+        versionCode = 2
+        versionName = "1.1"
     }
 
     signingConfigs {

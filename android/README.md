@@ -104,6 +104,20 @@ Invite member Google accounts (or a Google Group) as testers; they install
 from the Play link like any app and get updates automatically on the rare
 occasion the shell changes.
 
+**Play forces a release roughly once a year even when nothing here changes.**
+`targetSdk` has to stay within one year of the latest Android release or the
+listing stops accepting updates — the deadline lands each August, and missing
+it is not fatal but means no fix can ship until the bump does. So the bump is
+its own release: raise `targetSdk` and `compileSdk` to the new API level, raise
+`versionCode`, read Google's behaviour-changes page for *apps targeting* that
+level, and check the app still runs. The two that have bitten this shell are
+edge-to-edge (the inset padding in `MainActivity` is what keeps the controller
+out from under the status bar) and back handling (`OnBackPressedDispatcher`,
+because `onBackPressed()` stopped being called at 36). An emulator running the
+new API level is enough to check both: point the app at a dev server with
+`adb shell run-as com.nuxcor.hallclock` to write `base` into `shared_prefs`,
+then look at the status bar, the keyboard, and the back menu.
+
 ## APK distribution
 
 For anyone who cannot use Play, `./gradlew assembleRelease` produces a signed

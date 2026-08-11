@@ -55,8 +55,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // targetSdk 35 makes Android 15+ edge-to-edge, which would slide the
-        // page under the status bar. The controller's CSS has no safe-area
+        // Android 15+ draws every app edge-to-edge, which would slide the page
+        // under the status bar; from targetSdk 36 there is not even an opt-out
+        // attribute to fall back on. The controller's CSS has no safe-area
         // handling — it expects what iOS Safari's standalone mode gives it: a
         // solid dark bar above the page. Pad the (dark) root by the bar and
         // keyboard insets to reproduce exactly that.
