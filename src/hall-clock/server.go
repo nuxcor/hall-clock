@@ -358,6 +358,7 @@ func (s *server) handlePairing(publicURL string) http.HandlerFunc {
 		pinSet := s.config.ControlPIN != ""
 		pinLength := len([]rune(s.config.ControlPIN))
 		expiresAt := s.pairingUntil
+		deviceName := s.config.DeviceName
 		s.mu.Unlock()
 
 		// The advertised URL carries no token, so a QR printed on a noticeboard
@@ -368,6 +369,11 @@ func (s *server) handlePairing(publicURL string) http.HandlerFunc {
 			"pairingOpen":   open,
 			"pinRequired":   !open,
 			"pinConfigured": pinSet,
+			// The PIN prompt names the hall it is pairing with: two halls on one
+			// network look identical otherwise, and a phone that opened the
+			// wrong one asks for the wrong PIN with nothing to say so. Already
+			// public in every state broadcast.
+			"deviceName": deviceName,
 		}
 		// The PIN's length lets the pairing dialog claim on the final digit
 		// instead of asking for a redundant button tap. Within this appliance's

@@ -166,7 +166,14 @@
     });
   }
 
-  function buildPinPrompt() {
+  // A hall still called the default "Hall Clock" has not been named, and saying
+  // so in the prompt would read as identity while telling nobody anything.
+  function hallName(deviceName) {
+    const name = String(deviceName || "").trim();
+    return name && name !== "Hall Clock" ? name : "";
+  }
+
+  function buildPinPrompt(deviceName) {
     const backdrop = document.createElement("div");
     backdrop.className = "pairing-backdrop";
     backdrop.innerHTML = `
@@ -180,6 +187,10 @@
           <button type="button" class="action action-primary pairing-submit">Pair this device</button>
         </div>
       </section>`;
+    // textContent, never the template: the name is whatever a paired phone
+    // typed into setup, and this prompt is shown to phones not yet trusted.
+    const name = hallName(deviceName);
+    if (name) backdrop.querySelector("#pairingTitle").textContent = `Enter the PIN for ${name}`;
     return backdrop;
   }
 
@@ -188,9 +199,9 @@
   // fall through to a controller whose every button would fail with a 401.
   // When the PIN's length is known (from /api/pairing), the final digit claims
   // by itself; the button stays for the cases where it is not.
-  function showPinPrompt(pinLength) {
+  function showPinPrompt(pinLength, deviceName) {
     return new Promise((resolve) => {
-      const backdrop = buildPinPrompt();
+      const backdrop = buildPinPrompt(deviceName);
       const input = backdrop.querySelector(".pairing-input");
       const submit = backdrop.querySelector(".pairing-submit");
       const errorEl = backdrop.querySelector(".pairing-error");
@@ -266,8 +277,10 @@
       clearToken();
     }
     let pinLength = 0;
+    let deviceName = "";
     try {
       const status = await pairingStatus();
+      deviceName = status.deviceName;
       if (status.pairingOpen) {
         const token = await claimPairing("");
         if (token) return token;
@@ -281,7 +294,7 @@
       // stop somebody who knows the PIN from typing it.
       console.error(error);
     }
-    return showPinPrompt(pinLength);
+    return showPinPrompt(pinLength, deviceName);
   }
 
   // repairPairing is what a page calls after a 401: the token it held is dead
