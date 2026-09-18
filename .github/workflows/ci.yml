@@ -39,8 +39,15 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # platform-tools only. The action's default also asks for the legacy
+      # "tools" package, which newer command-line tools no longer list: once the
+      # runner image moved on, the action downloaded them and failed before a
+      # line of the app was built. The build needs neither — Gradle fetches the
+      # platform and build tools it wants, with the licences accepted above.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       # No gradle-version here: the committed wrapper pins it, so CI and a
       # developer's machine cannot drift onto different Gradle versions. That
