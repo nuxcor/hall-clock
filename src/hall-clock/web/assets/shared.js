@@ -1,17 +1,37 @@
 (function () {
   const TOKEN_KEY = "wallClockControlToken";
 
+  // Safari with storage blocked throws on every localStorage call, and an
+  // unguarded throw in getToken stopped the controller before it subscribed,
+  // leaving a dead 00:00. Keep a copy in memory as well: without storage the
+  // phone asks for the PIN on each visit, which beats not working at all.
+  // Read storage first, so a token another tab re-paired with still wins.
+  let memoryToken = "";
+
+  function storeToken(token) {
+    memoryToken = token;
+    try {
+      localStorage.setItem(TOKEN_KEY, token);
+    } catch {
+      // Storage denied: memoryToken carries it for this page's lifetime.
+    }
+  }
+
   function getToken() {
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token");
     if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
+      storeToken(token);
       params.delete("token");
       const query = params.toString();
       const clean = window.location.pathname + (query ? `?${query}` : "");
       window.history.replaceState({}, "", clean);
     }
-    return localStorage.getItem(TOKEN_KEY) || "";
+    try {
+      return localStorage.getItem(TOKEN_KEY) || memoryToken;
+    } catch {
+      return memoryToken;
+    }
   }
 
   // A request that never settles leaves its caller's "pending" flag set forever,
@@ -66,7 +86,12 @@
   // controller — and if so pair silently.
 
   function clearToken() {
-    localStorage.removeItem(TOKEN_KEY);
+    memoryToken = "";
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+    } catch {
+      // Storage denied: there was nothing stored to remove.
+    }
   }
 
   // tokenWorks asks the server whether the stored token is still valid. Trusting
@@ -78,7 +103,13 @@
       const response = await fetch("/api/pairing/verify", {
         headers: { "X-Wall-Clock-Token": token },
       });
-      return response.ok;
+      // Only a 401 says the token is bad. Anything else -- a 502 from Caddy
+      // while the app restarts, say -- is the clock being unreachable, and
+      // wiping a good token for it threw the operator into a PIN prompt
+      // mid-meeting. Treat it like the offline case below.
+      if (response.status === 401) return false;
+      if (!response.ok) console.error(`pairing check answered ${response.status}`);
+      return true;
     } catch (error) {
       // Offline is not the same as unpaired: keep the token and let the page
       // retry rather than dumping the operator into a PIN prompt mid-meeting.
@@ -97,7 +128,7 @@
     const result = await postJSON("/api/pairing/claim", { pin: pin || "" }, { timeoutMs: 15000 });
     const token = (result && result.token) || "";
     if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
+      storeToken(token);
     }
     return token;
   }
@@ -253,6 +284,28 @@
     return showPinPrompt(pinLength);
   }
 
+  // repairPairing is what a page calls after a 401: the token it held is dead
+  // and postJSON has already dropped it, so ask for the PIN in place rather
+  // than leave every later write going out with no token until a reload.
+  // Every page used to carry its own copy of this. One run at a time, shared
+  // by all callers: a few commands failing together must raise one PIN
+  // prompt, not a stack of them. Resolves true once paired, false if pairing
+  // failed; never rejects, so a caller only has to decide what to show.
+  let repairing = null;
+  function repairPairing() {
+    if (!repairing) {
+      repairing = ensurePaired()
+        .then(() => true, (error) => {
+          console.error(error);
+          return false;
+        })
+        .finally(() => {
+          repairing = null;
+        });
+    }
+    return repairing;
+  }
+
   // showPairingPIN reads the PIN in force. Needs a token, so only an
   // already-paired controller can see it.
   async function showPairingPIN() {
@@ -288,11 +341,22 @@
   // The server pushes state every 250ms, so a stream that has been quiet for
   // this long is dead no matter what readyState claims.
   const STALE_MS = 1500;
+  // A screen that never goes dark -- the Android wrapper keeps it on, the hall
+  // display never sleeps -- never fires the visibility events that check
+  // STALE_MS, so a stream that dies without an error (a wifi handover, a
+  // router dropping the idle socket) used to freeze the countdown with no
+  // offline notice at all. A watchdog checks for silence on a timer instead.
+  // Its limit is twenty missed pushes rather than six: it runs whether or not
+  // anybody is looking, so it must never tear down a stream that is only slow
+  // for a moment.
+  const WATCHDOG_EVERY_MS = 1000;
+  const WATCHDOG_SILENT_MS = 5000;
 
   function subscribe(onState, onConnection) {
     let source = null;
     let offlineTimer = null;
     let reconnectTimer = null;
+    let watchdogTimer = null;
     let reconnectDelay = RECONNECT_MIN_MS;
     let lastConnectAt = 0;
     let lastEventAt = 0;
@@ -357,6 +421,27 @@
       if (stopped) return;
       const fresh = source && source.readyState === EventSource.OPEN && Date.now() - lastEventAt < STALE_MS;
       if (fresh || Date.now() - lastConnectAt < RECONNECT_MIN_MS) return;
+      reconnect();
+    }
+
+    // resume's question, asked on a timer -- but judged on silence alone.
+    // resume also rebuilds a stream that is still CONNECTING, so a returning
+    // operator does not wait out the browser's retry backoff. Asked every
+    // second, that would rebuild a hanging connection every second, and every
+    // phone in the hall would hammer a Pi mid-update at 1Hz. connect() counts
+    // as activity, so this replaces a stream at most once per
+    // WATCHDOG_SILENT_MS, whatever state it is stuck in.
+    function watchdog() {
+      if (stopped || document.hidden) return;
+      if (Date.now() - lastEventAt < WATCHDOG_SILENT_MS) return;
+      reconnect();
+    }
+
+    function reconnect() {
+      // A stream that died without an error never reported itself offline.
+      // Start the grace period now: a reconnect that opens inside it clears
+      // it unseen, and one that hangs gets the banner it deserves.
+      report(false);
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
       connect();
@@ -369,6 +454,11 @@
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("pageshow", resume);
     window.addEventListener("online", resume);
+    // One interval for the life of the subscription, never one per connect(),
+    // so reconnects cannot stack watchdogs. A hidden page is left alone: the
+    // OS has suspended its socket on purpose, and onVisible deals with it on
+    // the way back.
+    watchdogTimer = setInterval(watchdog, WATCHDOG_EVERY_MS);
 
     connect();
     return {
@@ -379,6 +469,7 @@
         window.removeEventListener("online", resume);
         clearTimeout(offlineTimer);
         clearTimeout(reconnectTimer);
+        clearInterval(watchdogTimer);
         if (source) source.close();
       },
     };
@@ -416,6 +507,7 @@
     getToken,
     clearToken,
     ensurePaired,
+    repairPairing,
     pairingStatus,
     showPairingPIN,
     setPairingPIN,

@@ -35,6 +35,7 @@
     parts = config.schedule || [];
     renderStarts();
     renderParts();
+    markSaved();
   }
 
   async function fetchConfig() {
@@ -73,6 +74,97 @@
   // and one that appears is a signal worth reading.
   let dirty = false;
   let statusTimer = null;
+  // What the clock was last known to hold: the form as loaded, as last saved,
+  // or with an applied import's items. Dirty means Save would send something
+  // different -- not that a key was pressed, so a value typed and then put
+  // back is no change, and an import that saved itself leaves nothing behind.
+  // Null until the load lands, and until then every edit counts.
+  let savedPayload = null;
+
+  // Exactly what Save sends, read fresh from the form.
+  function formPayload() {
+    readPartsFromForm();
+    readStartsFromForm();
+    return {
+      deviceName: deviceNameInput.value,
+      advertisedBaseUrl: advertisedBaseUrlInput.value,
+      meetingType: meetingTypeInput.value,
+      meetingStartTime: meetingStarts[0]?.time || "19:30",
+      meetingStarts,
+      prestartSeconds: Number(prestartMinutesInput.value || 5) * 60,
+      midweekUrl: midweekUrlInput.value,
+      autoImportMidweek: autoImportInput.checked,
+      schedule: parts,
+    };
+  }
+
+  // A deep copy, never the payload itself: it shares `parts` and
+  // `meetingStarts`, which every later read of the form rewrites in place, so
+  // a snapshot holding them would follow the form and never differ from it.
+  function copyPayload(payload) {
+    return JSON.parse(JSON.stringify(payload));
+  }
+
+  function unsaved() {
+    return savedPayload === null || JSON.stringify(formPayload()) !== JSON.stringify(savedPayload);
+  }
+
+  function refreshDirty() {
+    setDirty(unsaved());
+  }
+
+  // Records the form as what the clock now holds. `fields` narrows it to what
+  // an import wrote, so a device name typed before the import stays unsaved.
+  function markSaved(fields) {
+    const current = copyPayload(formPayload());
+    if (!fields) {
+      savedPayload = current;
+    } else if (savedPayload) {
+      fields.forEach((field) => {
+        savedPayload[field] = current[field];
+      });
+    }
+    refreshDirty();
+  }
+
+  // A 401 means the token this browser held is dead — shared.js has already
+  // dropped it. Ask for the PIN in place, the way the controller does: left
+  // alone, every later save went out with no token at all until a reload.
+  // The banner is only for a pairing that failed outright.
+  async function repairPairing() {
+    const paired = await WallClock.repairPairing();
+    tokenWarning.classList.toggle("hidden", paired);
+  }
+
+  // Only an auth failure is about this device. A 400 for a bad URL, or WOL
+  // being unreachable, is about the request, and pointing the operator at
+  // /pair for it sends them after a problem that does not exist. postJSON
+  // throws the server's own words as the message and carries the status; a
+  // request that never got an answer has no status, and a message meant for
+  // the console rather than for a person.
+  function reportFailure(what, error) {
+    console.error(error);
+    if (error.status === 401) {
+      setSaveStatus(`${what} — this device had to pair again. Try again.`, true);
+      repairPairing();
+      return;
+    }
+    if (error.status === 403) {
+      tokenWarning.classList.remove("hidden");
+      setSaveStatus(what, true);
+      return;
+    }
+    if (error.timedOut) {
+      setSaveStatus(`${what} — the clock took too long to answer.`, true);
+      return;
+    }
+    if (!error.status) {
+      setSaveStatus(`${what} — no answer from the clock. Check the wifi and try again.`, true);
+      return;
+    }
+    const detail = String(error.message || "").trim().replace(/\s+/g, " ");
+    setSaveStatus(detail ? `${what}: ${detail}` : what, true);
+  }
 
   function setSaveStatus(message, isError, transient) {
     clearTimeout(statusTimer);
@@ -96,15 +188,18 @@
     else if (saveStatus.textContent === "Unsaved changes") setSaveStatus("");
   }
 
-  // Typing counts as an edit; typing a PIN does not. The PIN field sits in this
-  // form for layout only — its own button writes it, and Save settings never
-  // carries it.
+  // Typing counts as an edit; typing a PIN or pasting timings does not. Save
+  // settings carries neither. The PIN field sits in this form for layout only
+  // and its own button writes it. Pasted timings reach the items only through
+  // Preview pasted timings, which does count, by way of the list it fills:
+  // counting the typing too raised the save bar for a Save that said "Saved"
+  // and left the old items in place.
   ["input", "change"].forEach((type) => {
     form.addEventListener(type, (event) => {
-      if (event.target.id === "pinInput") return;
+      if (event.target.id === "pinInput" || event.target.id === "midweekTextInput") return;
+      refreshDirty();
       // An edit is also the answer to whatever the last complaint was.
-      if (dirty && saveStatus.classList.contains("error")) setSaveStatus("Unsaved changes");
-      setDirty(true);
+      if (saveStatus.classList.contains("error")) setSaveStatus(dirty ? "Unsaved changes" : "");
     });
   });
 
@@ -129,13 +224,33 @@
         const config = await fetchConfig();
         renderAutoStatus(config);
         renderMeetingType(config.meetingType || "midweek");
-        if (config.midweekUrl) midweekUrlInput.value = config.midweekUrl;
+        // Take the clock's URL and items only where the operator has not
+        // edited them since the save: this lands seconds after Save, and
+        // redrawing then threw away whatever had been typed, unannounced.
+        // Judged field by field, not for the whole form. A device name typed
+        // in those seconds used to make the page skip the fresh import, and
+        // the next Save posted last week's items back over it as an edit.
+        const current = formPayload();
+        const itemsUntouched = savedPayload !== null &&
+          JSON.stringify(current.schedule) === JSON.stringify(savedPayload.schedule);
+        const urlUntouched = savedPayload !== null && current.midweekUrl === savedPayload.midweekUrl;
+        const taken = [];
+        if (urlUntouched && config.midweekUrl) {
+          midweekUrlInput.value = config.midweekUrl;
+          taken.push("midweekUrl");
+        }
         if (config.midweekImportedWeek) {
-          parts = config.schedule || parts;
-          renderParts();
+          if (itemsUntouched) {
+            parts = config.schedule || parts;
+            renderParts();
+            taken.push("schedule");
+          }
         } else if (attempts > 1) {
           watchAutoImport(attempts - 1);
         }
+        // The clock wrote these itself, so they are not the operator's to
+        // save; anything else they typed still is.
+        if (taken.length) markSaved(taken);
       } catch (error) {
         console.error(error);
       }
@@ -285,7 +400,7 @@
     readPartsFromForm();
     parts.push({ title: `Item ${parts.length + 1}`, durationSeconds: 300, closingSeconds: 120 });
     renderParts();
-    setDirty(true);
+    refreshDirty();
   });
 
   tabButtons.forEach((button, index) => {
@@ -314,7 +429,7 @@
       midweekUrl: "",
     });
     renderStarts();
-    setDirty(true);
+    refreshDirty();
   });
 
   startsList.addEventListener("click", (event) => {
@@ -326,7 +441,7 @@
       meetingStarts = defaultMeetingStarts("19:30");
     }
     renderStarts();
-    setDirty(true);
+    refreshDirty();
   });
 
   document.getElementById("parseMidweekBtn").addEventListener("click", () => {
@@ -351,15 +466,17 @@
       parts = result.schedule || [];
       renderParts();
       if (apply) {
+        // The clock saved these items and this URL itself. Anything else
+        // typed before the import is still outstanding, and still counts.
+        markSaved(["schedule", "midweekUrl"]);
         await refreshMeetingType();
+      } else {
+        refreshDirty();
       }
       tokenWarning.classList.add("hidden");
-      if (!apply) setDirty(true);
       setSaveStatus(apply ? "Imported and saved" : `Previewed ${parts.length} items`, false, true);
     } catch (error) {
-      tokenWarning.classList.remove("hidden");
-      setSaveStatus("Could not import URL", true);
-      console.error(error);
+      reportFailure("Could not import URL", error);
     }
   }
 
@@ -373,15 +490,19 @@
       parts = result.schedule || [];
       renderParts();
       if (apply) {
+        // An applied paste clears the clock's saved URL (the items no longer
+        // come from one), so clear the form's to match. Left in place, the
+        // next Save posted the old URL straight back.
+        midweekUrlInput.value = "";
+        markSaved(["schedule", "midweekUrl"]);
         await refreshMeetingType();
+      } else {
+        refreshDirty();
       }
       tokenWarning.classList.add("hidden");
-      if (!apply) setDirty(true);
       setSaveStatus(apply ? "Imported and saved" : `Parsed ${parts.length} items`, false, true);
     } catch (error) {
-      tokenWarning.classList.remove("hidden");
-      setSaveStatus("Could not parse pasted timings", true);
-      console.error(error);
+      reportFailure("Could not parse pasted timings", error);
     }
   }
 
@@ -394,7 +515,7 @@
       parts.push({ title: "Item 1", durationSeconds: 300, closingSeconds: 120 });
     }
     renderParts();
-    setDirty(true);
+    refreshDirty();
   });
 
   // The form carries `novalidate`, so these two are checked here instead. Left
@@ -429,8 +550,6 @@
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    readPartsFromForm();
-    readStartsFromForm();
     const problem = fieldProblem();
     if (problem) {
       revealField(problem.input);
@@ -438,35 +557,36 @@
       return;
     }
     setSaveStatus("Saving...");
+    const payload = formPayload();
+    // Kept as sent. The form stays editable while the save is in flight, and
+    // whatever is typed meanwhile is measured against this, not against the
+    // form as it stands when the reply lands.
+    const sent = copyPayload(payload);
     try {
-      await WallClock.postJSON("/api/config", {
-        deviceName: deviceNameInput.value,
-        advertisedBaseUrl: advertisedBaseUrlInput.value,
-        meetingType: meetingTypeInput.value,
-        meetingStartTime: meetingStarts[0]?.time || "19:30",
-        meetingStarts,
-        prestartSeconds: Number(prestartMinutesInput.value || 5) * 60,
-        midweekUrl: midweekUrlInput.value,
-        autoImportMidweek: autoImportInput.checked,
-        schedule: parts,
-      });
+      await WallClock.postJSON("/api/config", payload);
       // The server owns the closing bell and may re-derive it, so redraw from
       // the saved midweek program rather than leave a stale number on screen.
       // The POST response carries the runtime state (on a weekend, the weekend
       // template), which must never be loaded into this editor.
       const savedConfig = await fetchConfig();
-      parts = savedConfig.schedule || parts;
-      renderParts();
-      setDirty(false);
+      if (JSON.stringify(formPayload()) === JSON.stringify(sent)) {
+        parts = savedConfig.schedule || parts;
+        renderParts();
+        markSaved();
+      } else {
+        // Edited while saving: the redraw would throw those edits away, and
+        // the bar would call a form saved that is not. Keep them, and measure
+        // them against what actually went out.
+        savedPayload = sent;
+        refreshDirty();
+      }
       setSaveStatus("Saved", false, true);
       tokenWarning.classList.add("hidden");
       if (autoImportInput.checked) {
         watchAutoImport(15);
       }
     } catch (error) {
-      tokenWarning.classList.remove("hidden");
-      setSaveStatus("Could not save", true);
-      console.error(error);
+      reportFailure("Could not save", error);
     }
   });
 
@@ -533,7 +653,12 @@
       await refreshPinStatus();
     } catch (error) {
       console.error(error);
-      pinMessage.textContent = error.message || "Could not save the PIN.";
+      if (error.status === 401) {
+        pinMessage.textContent = "This device had to pair again. Save the PIN again.";
+        repairPairing();
+      } else {
+        pinMessage.textContent = error.message || "Could not save the PIN.";
+      }
     } finally {
       setPinBtn.disabled = false;
     }

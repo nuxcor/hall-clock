@@ -1172,9 +1172,10 @@ textarea {
   outline-offset: 2px;
 }
 
-/* End meeting: a full-width, quiet close -- present and clearly tappable while a
-   meeting runs, then faded by .action:disabled while idle, when there is nothing
-   to end. Confirming turns amber like every other two-tap action. */
+/* End meeting: a full-width, quiet close in its own row at the bottom of the
+   stack -- on the final item, and while the clock sits idle with a meeting
+   still on; gone (row collapsed) otherwise. Confirming turns amber like every
+   other two-tap action. */
 .action-end {
   min-height: 46px;
   border-color: rgba(244, 95, 87, 0.36);
