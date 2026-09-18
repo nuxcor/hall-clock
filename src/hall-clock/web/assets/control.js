@@ -201,17 +201,14 @@
     // item that finishes early would leave no button on screen at all, since
     // Start is hidden while running and Next has nothing left to advance to.
     //
-    // It is also there whenever the clock is idle with a meeting still on
-    // (meetingInProgress): the server holds the meeting open through the gaps
-    // between parts, and a meeting that stops early -- items skipped, the last
-    // one never started -- would otherwise stay open, blocking updates, until
-    // it timed out. While a part runs it keeps to the final item, as before.
-    // An older server sends no meetingInProgress; then only the old rule holds.
+    // Only there. Showing it in the idle gaps between parts as well put a way
+    // to end the meeting under the operator's thumb all evening, and next to
+    // the countdown after a false start. A meeting left idle closes itself: the
+    // server lets it go after half an hour, or when the next one's countdown
+    // opens.
     const onFinalItem = !next && !prestart && timing;
-    const openBetweenParts = state.status === "idle" && state.meetingInProgress === true;
-    const endable = onFinalItem || openBetweenParts;
-    endBtn.classList.toggle("slot-hidden", !endable);
-    if (!endable && endBtn.classList.contains("armed")) {
+    endBtn.classList.toggle("slot-hidden", !onFinalItem);
+    if (!onFinalItem && endBtn.classList.contains("armed")) {
       disarmEnd();
     }
 
@@ -665,10 +662,9 @@
       closeAdhocPartPanel();
     }
   });
-  // Ending a meeting closes it for good, so it always takes two taps -- idle
-  // included. Between parts the clock is idle but the meeting is still on
-  // (see render), and one stray tap must not end it. Unlike Next it names no
-  // item: ending twice ends once, so a retry after a timeout cannot do any harm.
+  // Ending a meeting stops the clock and closes the meeting, so it always takes
+  // two taps. Unlike Next it names no item: ending twice ends once, so a retry
+  // after a timeout cannot do any harm.
   endBtn.addEventListener("click", () => {
     if (!endBtn.classList.contains("armed")) {
       endBtn.classList.add("armed");

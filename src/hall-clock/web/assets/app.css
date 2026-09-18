@@ -1180,9 +1180,8 @@ textarea {
 }
 
 /* End meeting: a full-width, quiet close in its own row at the bottom of the
-   stack -- on the final item, and while the clock sits idle with a meeting
-   still on; gone (row collapsed) otherwise. Confirming turns amber like every
-   other two-tap action. */
+   stack -- on the final item only; gone (row collapsed) otherwise. Confirming
+   turns amber like every other two-tap action. */
 .action-end {
   min-height: 46px;
   border-color: rgba(244, 95, 87, 0.36);
