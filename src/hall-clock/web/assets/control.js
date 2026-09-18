@@ -26,6 +26,7 @@
   const languageStatus = document.getElementById("languageStatus");
   let scheduleKey = "";
   let nextArmTimeout = null;
+  let startArmTimeout = null;
   let endArmTimeout = null;
   let resetArmTimeout = null;
   let partArmTimeout = null;
@@ -96,7 +97,12 @@
     // "Resume" survives for a paused state reached through the API, which the
     // UI can no longer produce but must not strand anybody in.
     startBtn.classList.toggle("slot-hidden", state.status === "running");
-    if (!timerCommandPending) {
+    // Start only needs confirming while the countdown runs (see its click
+    // handler); once the countdown ends, or the clock moves, one tap is right.
+    if (!startNeedsConfirm() && startBtn.classList.contains("armed")) {
+      disarmStart();
+    }
+    if (!timerCommandPending && !startBtn.classList.contains("armed")) {
       startBtn.textContent = state.status === "paused" ? "Resume" : "Start";
     }
     if (state.status === "idle") {
@@ -312,6 +318,8 @@
   async function advanceCommand(path, body) {
     if (advancePending) return;
     advancePending = true;
+    // A Start armed for the item being left must not carry over to the next.
+    disarmStart();
     if (latestState) render(latestState);
     // Whether the clock ended up off the item this tap was about, however the
     // reply went. It decides both the failure notice and the cooldown.
@@ -528,6 +536,20 @@
     nextBtn.textContent = "Next part";
   }
 
+  // Whether Start takes two taps: only while the pre-meeting countdown is on
+  // screen and nothing is on the clock yet.
+  function startNeedsConfirm() {
+    return Boolean(latestState && latestState.prestartActive) && latestStatus === "idle";
+  }
+
+  function disarmStart() {
+    clearTimeout(startArmTimeout);
+    startArmTimeout = null;
+    if (!startBtn.classList.contains("armed")) return;
+    startBtn.classList.remove("armed");
+    startBtn.textContent = latestStatus === "paused" ? "Resume" : "Start";
+  }
+
   function disarmReset() {
     clearTimeout(resetArmTimeout);
     resetArmTimeout = null;
@@ -566,6 +588,17 @@
 
   startBtn.addEventListener("click", async () => {
     if (timerCommandPending || advancePending) return;
+    // During the pre-meeting countdown one stray tap started the first part
+    // early and took the countdown off the TV. Start still works then -- the
+    // countdown is only as right as the start time saved in /setup, and a wrong
+    // one must never lock the operator out -- but it takes a second tap.
+    if (startNeedsConfirm() && !startBtn.classList.contains("armed")) {
+      startBtn.classList.add("armed");
+      startBtn.textContent = "Confirm start";
+      startArmTimeout = setTimeout(disarmStart, ARM_TIMEOUT_MS);
+      return;
+    }
+    disarmStart();
     timerCommandPending = true;
     const status = latestStatus;
     startBtn.disabled = true;

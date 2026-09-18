@@ -1142,9 +1142,16 @@ textarea {
   outline-offset: 2px;
 }
 
-/* The meeting is over: state it plainly rather than dangling an action. */
-.action-next:disabled {
-  border-style: dashed;
+/* Start armed during the pre-meeting countdown: one more tap starts the first
+   part early. Amber like every other confirmation, so the change from green is
+   unmistakable. */
+.action-primary.armed {
+  border-color: rgba(246, 196, 83, 0.55);
+  background: linear-gradient(180deg, #2a2416, #1d180f);
+  color: var(--amber);
+  box-shadow: none;
+  outline: 2px solid rgba(246, 196, 83, 0.45);
+  outline-offset: 2px;
 }
 
 /* Reset part: for the false start -- Start tapped before the speaker reached the
@@ -1228,6 +1235,16 @@ textarea {
   filter: grayscale(0.35);
   transform: none;
   box-shadow: none;
+}
+
+/* Start is held for a second after Next moves the clock, so a stray second
+   tap cannot start the part. Dimming alone left the green reading as live —
+   and that second is exactly when a thumb is on its way to it — so a held
+   Start drops its colour altogether. */
+.action-primary:disabled {
+  border-color: var(--line);
+  background: linear-gradient(180deg, var(--panel-2), #202832);
+  color: var(--muted);
 }
 
 .pair-page {
