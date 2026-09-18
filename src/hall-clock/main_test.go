@@ -1217,7 +1217,8 @@ func TestAutomaticScheduleSwitchesByWeekendDay(t *testing.T) {
 
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
-	srv.syncActiveScheduleLocked(time.Date(2026, 7, 5, 9, 0, 0, 0, time.UTC)) // Sunday
+	at := time.Date(2026, 7, 5, 9, 0, 0, 0, time.UTC) // Sunday
+	srv.syncActiveScheduleLocked(at, srv.meetingInProgressLocked(at))
 	if srv.state.MeetingType != "weekend" {
 		t.Fatalf("expected weekend meeting type, got %q", srv.state.MeetingType)
 	}
@@ -1228,7 +1229,8 @@ func TestAutomaticScheduleSwitchesByWeekendDay(t *testing.T) {
 		t.Fatalf("unexpected weekend schedule: %+v", srv.talks)
 	}
 
-	srv.syncActiveScheduleLocked(time.Date(2026, 7, 6, 9, 0, 0, 0, time.UTC)) // Monday
+	at = time.Date(2026, 7, 6, 9, 0, 0, 0, time.UTC) // Monday
+	srv.syncActiveScheduleLocked(at, srv.meetingInProgressLocked(at))
 	if srv.state.MeetingType != "midweek" {
 		t.Fatalf("expected midweek meeting type, got %q", srv.state.MeetingType)
 	}
@@ -1935,7 +1937,7 @@ func pinMidweek(t *testing.T, srv *server) {
 	fixed := time.Date(2026, 7, 8, 19, 45, 0, 0, time.UTC) // Wednesday, just after the 19:30 start
 	srv.clock = func() time.Time { return fixed }
 	srv.mu.Lock()
-	srv.syncActiveScheduleLocked(fixed)
+	srv.syncActiveScheduleLocked(fixed, srv.meetingInProgressLocked(fixed))
 	srv.mu.Unlock()
 }
 
@@ -2417,7 +2419,7 @@ func TestCircuitOverseerAutoExpiresAfterThreeHours(t *testing.T) {
 	base := time.Date(2026, 7, 8, 19, 0, 0, 0, time.UTC) // Wednesday 19:00
 	srv.clock = func() time.Time { return base }
 	srv.mu.Lock()
-	srv.syncActiveScheduleLocked(base)
+	srv.syncActiveScheduleLocked(base, srv.meetingInProgressLocked(base))
 	srv.mu.Unlock()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/control/circuit-overseer", strings.NewReader(`{"on":true}`))

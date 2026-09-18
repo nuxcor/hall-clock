@@ -95,7 +95,7 @@ func TestScheduleOverrideWindowIsThreeHours(t *testing.T) {
 
 // effectiveMidweekSchedule is the single authority on which program governs,
 // and it is consulted on paths that never run recalculate (boot, GET
-// /api/config, the setup page). Pin every combination of window and run state.
+// /api/config, the setup page). Pin every combination of window and meeting.
 func TestEffectiveMidweekScheduleHonoursExpiryAndRunState(t *testing.T) {
 	now := time.Date(2026, 7, 9, 19, 0, 0, 0, time.UTC)
 	baseline := []Talk{{ID: 1, Title: "Opening Comments", Duration: 60, Closing: 30}}
@@ -106,24 +106,23 @@ func TestEffectiveMidweekScheduleHonoursExpiryAndRunState(t *testing.T) {
 	none := Config{Schedule: baseline}
 
 	cases := []struct {
-		name   string
-		config Config
-		status TimerStatus
-		want   []Talk
+		name       string
+		config     Config
+		inProgress bool
+		want       []Talk
 	}{
-		{"window open, idle", open, StatusIdle, edited},
-		{"window open, running", open, StatusRunning, edited},
-		{"window lapsed, idle", lapsed, StatusIdle, baseline},
-		// The crux: a meeting that outruns the window keeps its edited program.
-		// The clock on the wall must not change parts under a speaker.
-		{"window lapsed, running", lapsed, StatusRunning, edited},
-		{"window lapsed, paused", lapsed, StatusPaused, edited},
-		{"no edit, idle", none, StatusIdle, baseline},
-		{"no edit, running", none, StatusRunning, baseline},
+		{"window open, between meetings", open, false, edited},
+		{"window open, meeting in progress", open, true, edited},
+		{"window lapsed, between meetings", lapsed, false, baseline},
+		// The crux: a meeting that outruns the window keeps its edited program,
+		// idle between two parts as much as mid-part.
+		{"window lapsed, meeting in progress", lapsed, true, edited},
+		{"no edit, between meetings", none, false, baseline},
+		{"no edit, meeting in progress", none, true, baseline},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := effectiveMidweekSchedule(tc.config, tc.status, now); !sameSchedule(got, tc.want) {
+			if got := effectiveMidweekSchedule(tc.config, tc.inProgress, now); !sameSchedule(got, tc.want) {
 				t.Fatalf("got %+v, want %+v", got, tc.want)
 			}
 		})
@@ -179,12 +178,20 @@ func TestScheduleEditNeverExpiresMidMeeting(t *testing.T) {
 		t.Fatalf("a running meeting must keep its edited schedule, got %ds", running.Schedule[0].Duration)
 	}
 
-	// Once the meeting goes idle -- the operator selecting a part to prepare the
-	// next one -- the expired edit gives way to the baseline.
-	h.selectPart(running.CurrentTalkID)
-	idle := h.state()
-	if !sameSchedule(idle.Schedule, baseline) {
-		t.Fatalf("expected baseline once idle, got %+v", idle.Schedule)
+	// Moving between parts leaves the clock idle, but the meeting is not over:
+	// the edit must survive it. This used to bring the removed parts back at
+	// the first part change after the window closed.
+	h.post("/api/control/next", "")
+	between := h.state()
+	if between.Schedule[0].Duration != 120 {
+		t.Fatalf("the edit lapsed between two parts of a running meeting, got %ds", between.Schedule[0].Duration)
+	}
+
+	// Once the meeting is ended, the expired edit gives way to the baseline.
+	h.post("/api/control/end", "")
+	ended := h.state()
+	if !sameSchedule(ended.Schedule, baseline) {
+		t.Fatalf("expected baseline once the meeting ended, got %+v", ended.Schedule)
 	}
 }
 
@@ -277,10 +284,10 @@ func TestSaveAfterExpiryDoesNotRearmOverride(t *testing.T) {
 		t.Fatalf("expired one-session edit resurrected until %v (now %v)", expiry, h.now)
 	}
 
-	// And once the meeting goes idle, the baseline returns.
-	h.selectPart(h.state().CurrentTalkID)
+	// And once the meeting is over, the baseline returns.
+	h.post("/api/control/end", "")
 	if got := h.state(); got.Schedule[0].Duration != 60 {
-		t.Fatalf("expected baseline once idle, got %ds", got.Schedule[0].Duration)
+		t.Fatalf("expected baseline once the meeting ended, got %ds", got.Schedule[0].Duration)
 	}
 }
 

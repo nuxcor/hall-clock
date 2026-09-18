@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // updateTestServer wires the update paths into a temp dir so the handlers do not
@@ -26,6 +28,10 @@ func updateTestServer(t *testing.T, latest string, lookupErr error) (*server, ht
 	}
 	srv.updateTriggerPath = filepath.Join(stateDir, "update-requested")
 	srv.updateStatusPath = filepath.Join(stateDir, "update-status.json")
+	// Updates wait out the pre-meeting countdown, so on the wall clock these
+	// tests would fail whenever CI ran in the five minutes before a meeting.
+	noon := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC) // Thursday
+	srv.clock = func() time.Time { return noon }
 
 	original := latestReleaseTagFunc
 	latestReleaseTagFunc = func(context.Context, string) (string, error) { return latest, lookupErr }
@@ -273,12 +279,16 @@ func TestUpdateCheckKeepsLastKnownTagOnFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	now := time.Now()
+	srv.clock = func() time.Time { return now }
+
 	if info := getUpdateInfo(t, mux); !info.UpdateAvailable {
 		t.Fatal("expected the first check to find v1.1.0")
 	}
 
 	// Force a re-check that fails.
 	fail = true
+	now = now.Add(updateForceMinInterval)
 	req := httptest.NewRequest(http.MethodGet, "/api/update?refresh=1", nil)
 	res := httptest.NewRecorder()
 	mux.ServeHTTP(res, req)
@@ -318,16 +328,134 @@ func TestUpdateCheckIsCached(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	now := time.Now()
+	srv.clock = func() time.Time { return now }
+
 	getUpdateInfo(t, mux)
 	getUpdateInfo(t, mux)
 	if calls != 1 {
 		t.Fatalf("expected the second load to hit the cache, got %d calls", calls)
 	}
 
-	// "Check again" bypasses it.
-	req := httptest.NewRequest(http.MethodGet, "/api/update?refresh=1", nil)
-	mux.ServeHTTP(httptest.NewRecorder(), req)
+	// "Check again" needs no token, so it cannot be a way for anything on the
+	// network to spend the hall's GitHub allowance: straight after a check, it
+	// is answered from the cache too.
+	refresh := func() {
+		req := httptest.NewRequest(http.MethodGet, "/api/update?refresh=1", nil)
+		mux.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	refresh()
+	if calls != 1 {
+		t.Fatalf("expected refresh=1 right after a check to be throttled, got %d calls", calls)
+	}
+
+	// A little later it bypasses the cache.
+	now = now.Add(updateForceMinInterval)
+	refresh()
 	if calls != 2 {
 		t.Fatalf("expected refresh=1 to force a check, got %d calls", calls)
+	}
+}
+
+// The check is cached for everyone, so it must not run on the asking phone's
+// request context: a phone that navigates away mid-check used to leave "could
+// not reach GitHub" on every setup page for fifteen minutes.
+func TestUpdateCheckSurvivesAbandonedRequest(t *testing.T) {
+	version = "v1.0.0"
+	t.Cleanup(func() { version = "dev" })
+
+	original := latestReleaseTagFunc
+	latestReleaseTagFunc = func(ctx context.Context, _ string) (string, error) {
+		if ctx.Err() != nil {
+			return "", errors.New("could not reach GitHub")
+		}
+		return "v1.1.0", nil
+	}
+	t.Cleanup(func() { latestReleaseTagFunc = original })
+
+	dir := t.TempDir()
+	srv, err := newServer(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.updateTriggerPath = filepath.Join(dir, "update-requested")
+	srv.updateStatusPath = filepath.Join(dir, "update-status.json")
+	mux, err := srv.routes("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/update", nil).WithContext(ctx)
+	mux.ServeHTTP(httptest.NewRecorder(), req)
+
+	info := getUpdateInfo(t, mux)
+	if info.CheckError != "" || info.Latest != "v1.1.0" {
+		t.Fatalf("an abandoned request poisoned the cached check: %+v", info)
+	}
+}
+
+// Updating restarts the app, which blanks the TV and resets the timer. Idle
+// between two parts is still the middle of a meeting.
+func TestUpdateRefusedBetweenPartsOfAMeeting(t *testing.T) {
+	version = "v1.0.0"
+	t.Cleanup(func() { version = "dev" })
+	srv, mux, trigger := updateTestServer(t, "v1.1.0", nil)
+	now := time.Date(2026, 7, 9, 19, 0, 0, 0, time.UTC) // Thursday, 19:00 meeting
+	srv.clock = func() time.Time { return now }
+
+	post := func(path string) int {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(""))
+		req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+		res := httptest.NewRecorder()
+		mux.ServeHTTP(res, req)
+		return res.Code
+	}
+
+	post("/api/control/start")
+	now = now.Add(time.Minute)
+	post("/api/control/next")
+	if info := getUpdateInfo(t, mux); info.CanUpdate {
+		t.Fatal("offered an update between two parts of a meeting")
+	}
+	if code := post("/api/update"); code != http.StatusConflict {
+		t.Fatalf("an update between parts was accepted: %d", code)
+	}
+	if _, err := os.Stat(trigger); err == nil {
+		t.Fatal("the update trigger was written mid-meeting")
+	}
+
+	post("/api/control/end")
+	if info := getUpdateInfo(t, mux); !info.CanUpdate {
+		t.Fatal("expected updates to be allowed once the meeting ended")
+	}
+
+	// The countdown to the next meeting is on the TV too.
+	now = time.Date(2026, 7, 10, 18, 57, 0, 0, time.UTC) // Friday, 3 minutes before 19:00
+	if info := getUpdateInfo(t, mux); info.CanUpdate {
+		t.Fatal("offered an update during the pre-meeting countdown")
+	}
+}
+
+// GitHub's "latest" can be older than what is running — a release deleted or
+// rolled back — and installing it would be a downgrade.
+func TestUpdateAvailableNeverDowngrades(t *testing.T) {
+	cases := []struct {
+		current, latest string
+		want            bool
+	}{
+		{"v0.3.15", "v0.3.9", false},
+		{"v0.3.9", "v0.3.15", true},
+		{"v0.4.0", "v0.3.99", false},
+		{"v0.3.15-2-gabc1234", "v0.3.14", false},
+		{"v1.0.0", "v1.0.1", true},
+		// Tags that do not parse fall back to "different means newer".
+		{"v1.0.0", "nightly", true},
+	}
+	for _, tc := range cases {
+		if got := updateAvailable(tc.current, tc.latest); got != tc.want {
+			t.Errorf("updateAvailable(%q, %q) = %v, want %v", tc.current, tc.latest, got, tc.want)
+		}
 	}
 }

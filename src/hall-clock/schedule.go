@@ -65,17 +65,22 @@ func (s *server) setBaselineScheduleLocked(schedule []Talk) {
 // scheduleOverrideApplies is the single authority on whether a hand-edited
 // schedule governs. It is deliberately not a pure function of the clock: an
 // edit that was governing when the meeting started keeps governing until the
-// timer returns to idle, because the program on the wall must never change
-// parts under the brother who is speaking. Once idle, the window decides.
+// meeting is over, because the program on the wall must never change under the
+// meeting it is timing. Between meetings, the window decides.
+//
+// "Over" is meetingInProgress, not an idle timer. Every Next leaves the clock
+// idle, so gating on idle let an edit saved at five o'clock lapse at the first
+// part change after eight, halfway through a seven o'clock meeting, and bring
+// back the parts the operator had removed.
 //
 // Every read of the midweek program goes through here. Splitting this decision
 // across a time-only check and an idle-gated sweep is what let a running
 // meeting snap back to the baseline mid-part.
-func scheduleOverrideApplies(config Config, status TimerStatus, now time.Time) bool {
+func scheduleOverrideApplies(config Config, meetingInProgress bool, now time.Time) bool {
 	if len(config.ScheduleOverride) == 0 {
 		return false
 	}
-	if status != StatusIdle {
+	if meetingInProgress {
 		return true
 	}
 	return sessionWindowActive(config.ScheduleOverrideExpiresAt, now)
@@ -84,19 +89,19 @@ func scheduleOverrideApplies(config Config, status TimerStatus, now time.Time) b
 // effectiveMidweekSchedule is the midweek program the clock should run right
 // now: the operator's edit while it governs, and the congregation's baseline
 // once it no longer does.
-func effectiveMidweekSchedule(config Config, status TimerStatus, now time.Time) []Talk {
-	if scheduleOverrideApplies(config, status, now) {
+func effectiveMidweekSchedule(config Config, meetingInProgress bool, now time.Time) []Talk {
+	if scheduleOverrideApplies(config, meetingInProgress, now) {
 		return config.ScheduleOverride
 	}
 	return config.Schedule
 }
 
 func (s *server) effectiveMidweekScheduleLocked(now time.Time) []Talk {
-	return effectiveMidweekSchedule(s.config, s.state.Status, now)
+	return effectiveMidweekSchedule(s.config, s.meetingInProgressLocked(now), now)
 }
 
 func (s *server) scheduleOverrideAppliesLocked(now time.Time) bool {
-	return scheduleOverrideApplies(s.config, s.state.Status, now)
+	return scheduleOverrideApplies(s.config, s.meetingInProgressLocked(now), now)
 }
 
 // derivedClosingSeconds is the WOL import's definition of a part's closing
@@ -289,11 +294,17 @@ func sameSchedule(a, b []Talk) bool {
 
 // isWeekendSchedule reports whether a saved schedule is really the weekend
 // template, in any language — a midweek schedule must never be one of those.
+// Ids are ignored: they survive edits now, so a copy of the template need not be
+// numbered 1 and 2.
 func isWeekendSchedule(schedule []Talk) bool {
+	positional := append([]Talk(nil), schedule...)
+	for i := range positional {
+		positional[i].ID = i + 1
+	}
 	for language := range weekendTitles {
 		weekend := weekendSchedule(language)
 		normalizeSchedule(weekend)
-		if sameSchedule(schedule, weekend) {
+		if sameSchedule(positional, weekend) {
 			return true
 		}
 	}

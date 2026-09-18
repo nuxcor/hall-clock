@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -38,9 +39,15 @@ type server struct {
 	// Not persisted: it describes one meeting, and a reboot mid meeting is rare
 	// enough that a wrong total is worse than a reset one.
 	retiredOverruns []partOverrun
-	// overtimeSession identifies the meeting the records belong to, so they clear
-	// themselves when the next meeting comes around.
-	overtimeSession time.Time
+	// meetingActiveAt is the last moment a part was on the clock (running or
+	// paused) in the meeting now under way, and zero when none is. The overtime
+	// records and every idle-only reconciliation hang off it through
+	// meetingInProgressLocked.
+	meetingActiveAt time.Time
+	// pauseCarry is the part of a second the current part had used when it was
+	// paused. Elapsed time is counted in whole seconds, so dropping it handed the
+	// speaker up to a second back on every pause.
+	pauseCarry time.Duration
 	// lastPrefetchSweep throttles retries of the per-language pre-load. A hall
 	// whose second language has no workbook published yet would otherwise be
 	// refetched every loop iteration — four times an hour, forever. A warm
@@ -179,7 +186,7 @@ func newServerWithClock(configPath string, clock func() time.Time) (*server, err
 	now := clock()
 	coActive := circuitOverseerActive(config.CircuitOverseerExpiresAt, now)
 	activeMeetingType := meetingTypeForTime(now)
-	activeSchedule := scheduleForMeetingType(activeMeetingType, effectiveMidweekSchedule(config, StatusIdle, now), coActive, config.MidweekLanguage)
+	activeSchedule := scheduleForMeetingType(activeMeetingType, effectiveMidweekSchedule(config, false, now), coActive, config.MidweekLanguage)
 	first := activeSchedule[0]
 	return &server{
 		configPath: configPath,
@@ -318,7 +325,7 @@ func (s *server) protect(next http.HandlerFunc) http.HandlerFunc {
 		s.mu.Lock()
 		expected := s.config.ControlToken
 		s.mu.Unlock()
-		if token == "" || token != expected {
+		if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(expected)) != 1 {
 			http.Error(w, "missing or invalid control token", http.StatusUnauthorized)
 			return
 		}
@@ -382,7 +389,7 @@ func (s *server) handleClaimPairing(publicURL string) http.HandlerFunc {
 		var body struct {
 			PIN string `json:"pin"`
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+		if err := decodeBody(w, r, 4096, &body); err != nil {
 			http.Error(w, "invalid JSON body", http.StatusBadRequest)
 			return
 		}
@@ -390,6 +397,16 @@ func (s *server) handleClaimPairing(publicURL string) http.HandlerFunc {
 		now := s.clock()
 		s.mu.Lock()
 		open := s.pairingOpenLocked(now)
+		// An "add a phone" window pairs exactly one phone; leaving it open would
+		// let anyone who noticed it join for the rest of the five minutes. Spend
+		// it here, in the critical section that saw it open: closing it after
+		// the unlock let two claims arriving together both walk through. The
+		// first-boot window stays open for its full term, so pairing a phone
+		// does not strand the laptop somebody is about to set the PIN from.
+		if open && s.pairingOneShot {
+			s.pairingUntil = time.Time{}
+			s.pairingOneShot = false
+		}
 		locked := now.Before(s.pinLockedUntil)
 		expected := s.config.ControlPIN
 		if !open && !locked && expected != "" {
@@ -427,14 +444,6 @@ func (s *server) handleClaimPairing(publicURL string) http.HandlerFunc {
 		s.mu.Lock()
 		s.pinFailures = 0
 		s.pinLockedUntil = time.Time{}
-		// An "add a phone" window pairs exactly one phone; leaving it open would
-		// let anyone who noticed it join for the rest of the five minutes. The
-		// first-boot window stays open for its full term, so pairing a phone
-		// does not strand the laptop somebody is about to set the PIN from.
-		if s.pairingOneShot {
-			s.pairingUntil = time.Time{}
-			s.pairingOneShot = false
-		}
 		token := s.config.ControlToken
 		configuredURL := s.config.AdvertisedBaseURL
 		state := s.snapshotLocked()
@@ -457,7 +466,7 @@ func (s *server) handleSetPIN(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		PIN string `json:"pin"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+	if err := decodeBody(w, r, 4096, &body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}

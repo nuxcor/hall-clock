@@ -49,12 +49,11 @@ func (s *server) applyScheduleLocked(schedule []Talk) {
 		}
 		s.recalculateLocked(s.clock())
 		if delta := talk.Duration - s.state.DurationSeconds; delta != 0 {
+			// Shift the baseline rather than restarting the count from now:
+			// restarting dropped whatever fraction of a second had already run.
 			s.state.DurationSeconds = talk.Duration
 			s.state.RemainingSeconds += delta
-			s.remainingAt = s.state.RemainingSeconds
-			if s.state.Status == StatusRunning {
-				s.startedAt = s.clock()
-			}
+			s.remainingAt += delta
 		}
 		s.state.CurrentTalkTitle = talk.Title
 		s.state.ClosingSeconds = talk.Closing
@@ -143,6 +142,7 @@ func (s *server) selectTalkLocked(talkID int) bool {
 			s.state.ClosingSeconds = talk.Closing
 			s.state.OvertimeSeconds = 0
 			s.remainingAt = talk.Duration
+			s.pauseCarry = 0
 			return true
 		}
 	}
@@ -152,14 +152,15 @@ func (s *server) selectTalkLocked(talkID int) bool {
 // syncCircuitOverseerLocked reconciles the effective CO flag with its expiry —
 // auto-deactivating the mode once 3 hours have passed so it never carries over
 // to another congregation's meeting on a shared box. Rebuilds the schedule only
-// while idle, so a running meeting is never disturbed mid-part.
-func (s *server) syncCircuitOverseerLocked(now time.Time) {
+// once the meeting is over: a visit that outlasts its window between two parts
+// must not swap the service talk out from under the program.
+func (s *server) syncCircuitOverseerLocked(now time.Time, inProgress bool) {
 	active := circuitOverseerActive(s.config.CircuitOverseerExpiresAt, now)
 	s.state.CircuitOverseerExpiresAt = circuitOverseerExpiryPtr(s.config.CircuitOverseerExpiresAt, now)
 	if active == s.state.CircuitOverseer {
 		return
 	}
-	if s.state.Status != StatusIdle {
+	if inProgress {
 		return
 	}
 	s.state.CircuitOverseer = active
@@ -171,13 +172,13 @@ func (s *server) syncCircuitOverseerLocked(now time.Time) {
 // on a shared box does not inherit the previous one's edits.
 //
 // scheduleOverrideApplies is the only expiry test here: it holds an override in
-// place for a running meeting, so reaching the clear below already implies the
-// timer is idle and no part can be disturbed mid-talk.
-func (s *server) syncScheduleOverrideLocked(now time.Time) {
+// place for a meeting in progress, so reaching the clear below already implies
+// the meeting is over and no part can be disturbed.
+func (s *server) syncScheduleOverrideLocked(now time.Time, inProgress bool) {
 	if len(s.config.ScheduleOverride) == 0 {
 		return
 	}
-	if s.scheduleOverrideAppliesLocked(now) {
+	if scheduleOverrideApplies(s.config, inProgress, now) {
 		return
 	}
 	s.config.ScheduleOverride = nil
@@ -185,15 +186,61 @@ func (s *server) syncScheduleOverrideLocked(now time.Time) {
 	s.applyScheduleLocked(scheduleForMeetingType(meetingTypeForTime(now), s.config.Schedule, s.state.CircuitOverseer, s.config.MidweekLanguage))
 }
 
-func (s *server) syncActiveScheduleLocked(now time.Time) {
-	if s.state.Status != StatusIdle {
+func (s *server) syncActiveScheduleLocked(now time.Time, inProgress bool) {
+	if inProgress {
 		return
 	}
-	// Full idle reconciliation, not just the meeting-type flip: a baseline that
-	// changed while a meeting was running (a deferred auto-import) lands here,
-	// at the first idle moment. sameBaseSchedule makes the common no-change
-	// tick a cheap comparison.
+	// Full reconciliation, not just the meeting-type flip: a baseline that
+	// changed while a meeting was under way (a deferred auto-import) lands here,
+	// once it is over. sameBaseSchedule makes the common no-change tick a cheap
+	// comparison.
 	s.applyActiveScheduleChangeLocked(now)
+}
+
+// meetingIdleGap is how long the clock may sit idle before the meeting it was
+// timing is taken to be over. Songs, prayers and the chairman's remarks leave it
+// idle for minutes at a time between parts; half an hour with nothing on the
+// clock is not a meeting any more.
+const meetingIdleGap = 30 * time.Minute
+
+// meetingHandoverIdle is how long the clock must have been idle before the next
+// meeting's countdown can end the one it was timing. A meeting that finished
+// idle well before the countdown hands over the moment it opens; one running
+// late, idle for a song between parts as the countdown opens, keeps its
+// language, its program and its overtime until it has really stopped.
+const meetingHandoverIdle = 10 * time.Minute
+
+// meetingInProgressLocked reports whether a meeting is under way: a part is on
+// the clock, or the clock is idle between parts of a meeting that has not
+// finished. Idle alone cannot answer this — every Next leaves the clock idle,
+// and the reconciliations that were only meant to run between meetings (an
+// expired edit, CO mode, the next congregation's language) used to fire at the
+// first part change after their window closed.
+//
+// A meeting finishes when the operator ends it, after meetingIdleGap of idling,
+// or once the next meeting's session has begun and the clock has been idle for
+// meetingHandoverIdle.
+//
+// Recalculation works this out once and hands it down: nothing it reconciles
+// can change the answer, since each of those acts only between meetings and
+// leaves the clock idle.
+func (s *server) meetingInProgressLocked(now time.Time) bool {
+	if s.state.Status != StatusIdle {
+		return true
+	}
+	if s.meetingActiveAt.IsZero() {
+		return false
+	}
+	idle := now.Sub(s.meetingActiveAt)
+	if idle >= meetingIdleGap {
+		return false
+	}
+	if idle >= meetingHandoverIdle {
+		if session, ok := s.meetingSessionLocked(now); ok && session.After(s.meetingActiveAt) {
+			return false
+		}
+	}
+	return true
 }
 
 // currentOvertimeLocked is how far the current part is past its time as of now.
@@ -235,6 +282,20 @@ func (s *server) meetingOvertimeSecondsLocked(now time.Time) int {
 	return total
 }
 
+// highestPartIDLocked is the highest programme id the clock holds anywhere —
+// running, saved or edited — so a save can number new parts above all of them.
+func (s *server) highestPartIDLocked() int {
+	highest := 0
+	for _, schedule := range [][]Talk{s.talks, s.config.Schedule, s.config.ScheduleOverride} {
+		for _, talk := range schedule {
+			if validPartID(talk.ID) {
+				highest = max(highest, talk.ID)
+			}
+		}
+	}
+	return highest
+}
+
 // hasTalkLocked reports whether a part is in the running schedule.
 func (s *server) hasTalkLocked(talkID int) bool {
 	for _, talk := range s.talks {
@@ -245,33 +306,25 @@ func (s *server) hasTalkLocked(talkID int) bool {
 	return false
 }
 
-// meetingSessionLocked identifies the meeting currently in progress, by the
-// most recent configured start minus the prestart window — so setting up counts
-// as part of the meeting. It is the one answer to "is this still the same
-// meeting", shared by everything that has to scope itself to one: the overtime
-// total and the ad-hoc parts. Reports false when no start is configured.
+// meetingSessionLocked identifies the current meeting session by its configured
+// start minus the prestart window, so setting up counts as part of the meeting.
+// The session begins when that window opens, not when the start time arrives:
+// looking only for starts already past left the previous session in force for
+// the five minutes before the meeting, and a first part started a few seconds
+// early had its overtime wiped the moment the real start time came round.
+// Reports false when no start is configured.
 func (s *server) meetingSessionLocked(now time.Time) (time.Time, bool) {
-	sessionStart, ok := latestMeetingStart(now, s.config.MeetingStarts)
+	prestart := time.Duration(s.config.PrestartSeconds) * time.Second
+	sessionStart, ok := latestMeetingStart(now.Add(prestart), s.config.MeetingStarts)
 	if !ok {
 		return time.Time{}, false
 	}
-	return sessionStart.Add(-time.Duration(s.config.PrestartSeconds) * time.Second), true
-}
-
-// syncOvertimeSessionLocked drops the overtime of parts retired in an earlier
-// meeting. The caller reconciles only while idle, so a total is never zeroed
-// out from under a meeting in progress.
-func (s *server) syncOvertimeSessionLocked(session time.Time) {
-	if s.overtimeSession.Equal(session) {
-		return
-	}
-	s.overtimeSession = session
-	s.retiredOverruns = nil
+	return sessionStart.Add(-prestart), true
 }
 
 // purgeStaleTemporaryPartsLocked drops ad-hoc parts created before the current
 // meeting session: they belong to a previous congregation's meeting. The caller
-// reconciles only while idle, so an in-progress timer is never disturbed.
+// runs it only between meetings, so a meeting in progress never loses one.
 func (s *server) purgeStaleTemporaryPartsLocked(cutoff time.Time) {
 	hasTemporary := false
 	for _, talk := range s.talks {
@@ -310,8 +363,12 @@ func (s *server) purgeStaleTemporaryPartsLocked(cutoff time.Time) {
 // imminent meeting start. Shared halls can list each congregation's start time
 // with its own language, so an idle clock should follow the congregation whose
 // meeting is about to start instead of making the operator switch manually.
-func (s *server) syncMeetingStartLanguageLocked(now time.Time) {
-	if s.state.Status != StatusIdle {
+//
+// Never while a meeting is in progress: the next congregation's lead window can
+// open before this one's closing parts, and switching between two of them put
+// the end of an English meeting on the wall in Spanish.
+func (s *server) syncMeetingStartLanguageLocked(now time.Time, inProgress bool) {
+	if inProgress {
 		return
 	}
 	// A person's explicit switch outranks the schedule-implied language for the
@@ -474,19 +531,27 @@ func (s *server) applyActiveScheduleChangeLocked(now time.Time) {
 }
 
 func (s *server) recalculateLocked(now time.Time) {
-	s.syncMeetingStartLanguageLocked(now)
-	s.syncCircuitOverseerLocked(now)
-	s.syncScheduleOverrideLocked(now)
-	s.syncActiveScheduleLocked(now)
-	// Both the overtime total and the ad-hoc parts are scoped to one meeting, and
-	// both are reconciled only while idle. Derive the boundary once, here, so the
-	// two can never disagree about when a new meeting started.
-	if s.state.Status == StatusIdle {
+	if s.state.Status != StatusIdle {
+		s.meetingActiveAt = now
+	}
+	// Asked once: this runs four times a second per screen, and none of the
+	// reconciliations below can change the answer.
+	inProgress := s.meetingInProgressLocked(now)
+	s.syncMeetingStartLanguageLocked(now, inProgress)
+	s.syncCircuitOverseerLocked(now, inProgress)
+	s.syncScheduleOverrideLocked(now, inProgress)
+	s.syncActiveScheduleLocked(now, inProgress)
+	// Both the overtime total and the ad-hoc parts are scoped to one meeting.
+	// Clear them once it is over, never merely because the clock is idle — it is
+	// idle between every pair of parts.
+	if !inProgress {
+		s.meetingActiveAt = time.Time{}
+		s.retiredOverruns = nil
 		if session, ok := s.meetingSessionLocked(now); ok {
-			s.syncOvertimeSessionLocked(session)
 			s.purgeStaleTemporaryPartsLocked(session.Add(-adhocPartGrace))
 		}
 	}
+	s.state.MeetingInProgress = inProgress
 	s.state.Now = now
 	s.state.PrestartActive = false
 	s.state.PrestartRemaining = 0
