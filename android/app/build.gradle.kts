@@ -32,7 +32,11 @@ android {
         // handled through OnBackPressedDispatcher rather than onBackPressed(),
         // which 36 stops calling.
         targetSdk = 36
-        versionCode = 3
+        // Play refuses any versionCode it has ever seen, drafts and discarded
+        // releases included, and its history is the one that counts: 3 was
+        // taken by an upload that never reached this file. Before bumping,
+        // check Play Console → App bundle explorer for the highest code used.
+        versionCode = 10
         versionName = "1.2"
     }
 
