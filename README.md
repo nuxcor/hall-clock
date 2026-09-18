@@ -67,16 +67,18 @@ an already-paired controller.
 Supporting rules:
 
 - Five wrong PINs lock further guessing for five minutes. The attempt is spent
-  before the hash is derived, so guessing in parallel buys no more tries than
-  guessing in series. A success resets the count. The lockout is global rather
-  than per-client, so a stranger can block *new* pairings for five minutes —
-  phones already paired are unaffected, which is the trade that matters on a
-  meeting night.
-- **First boot** opens a PIN-free window so the appliance can be set up at all:
-  15 minutes, or until one phone pairs, whichever comes first. The installer
-  pairs a phone, then sets a PIN. Setting one closes the window immediately, and
-  a restart with a PIN configured never reopens it. Until a PIN exists the
-  startup log says so plainly, and `/setup` shows a warning.
+  in the same critical section that reads the lockout, before the PIN is
+  compared, so guessing in parallel buys no more tries than guessing in series.
+  A success resets the count. The lockout is global rather than per-client, so
+  a stranger can block *new* pairings for five minutes — phones already paired
+  are unaffected, which is the trade that matters on a meeting night.
+- **First boot** opens a PIN-free window so the appliance can be set up at all,
+  for 15 minutes. Pairing a phone does not close it: the controller pairs
+  silently on load, so closing on the first phone would lock out the laptop the
+  PIN is about to be set from. The installer pairs a phone, then sets a PIN.
+  Setting one closes the window immediately, and a restart with a PIN
+  configured never reopens it. Until a PIN exists the startup log says so
+  plainly, and `/setup` shows a warning.
 - An already-paired controller can `POST /api/pairing/enable` to open a
   five-minute window, so a second phone can join without being told the PIN.
   One window pairs one phone.
@@ -91,6 +93,14 @@ If the PIN is forgotten and no phone is still paired, recovery means editing
 `/etc/hall-clock/config.json` on the Pi (clear `controlPin`, restart to get a
 fresh grace window). With a phone still paired, just read the PIN back in
 `/setup` — that is what it is there for.
+
+Every save also writes `config.json.bak` beside it, and the app falls back to
+that copy when `config.json` is there but unreadable, so a hall with a PIN never
+comes up open to anyone after a bad write. It holds the same PIN and token, with
+the same permissions. It means a hand edit that breaks the JSON brings back the
+*old* config, PIN included — the log says `restored the last good copy` when
+that happens. Deleting `config.json` outright is still a full reset: the copy is
+never read when the file is missing.
 
 This is a trusted-LAN appliance, not an internet-facing service: keep it on an
 isolated network. The PIN raises the bar from "anyone on the Wi-Fi" to "anyone
@@ -187,7 +197,7 @@ make test      # go test ./...
 make race      # tests with the race detector
 make vet       # go vet ./...
 make build     # ./hall-clock
-make build-pi  # dist/hall-clock-arm64 for the Pi
+make build-pi  # dist/hall-clock-linux-arm64 for the Pi
 ```
 
 `make run` serves the web assets straight from disk (`-web-dir`), so edits to

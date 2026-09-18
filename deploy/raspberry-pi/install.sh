@@ -80,15 +80,121 @@ set_hostname() {
   systemctl restart avahi-daemon 2>/dev/null || true
 }
 
+# A freshly imaged Pi is often still busy with its first unattended-upgrades
+# run, and apt-get gives up on the dpkg lock it holds at once unless told to
+# wait. Wait, but not for ever: apt prints what it is waiting on, and a person
+# is at the terminal.
+apt_get() {
+  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 "$@"
+}
+
 ensure_caddy() {
   if command -v caddy >/dev/null 2>&1 && [ -d "$CADDY_DIR" ]; then
     return 0
   fi
 
   echo "Caddy not found; installing with apt..."
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y caddy
+  apt_get update
+  apt_get install -y caddy
+}
+
+# Hides the X pointer on the display (see hall-clock-kiosk.sh). Not fatal if it
+# will not install: the kiosk script skips it when absent, and the display page
+# still carries cursor:none.
+ensure_unclutter() {
+  command -v unclutter >/dev/null 2>&1 && return 0
+  echo "unclutter not found; installing with apt..."
+  apt_get install -y unclutter && return 0
+  # Stale package lists are the usual reason the first attempt fails on a Pi
+  # that has not seen apt in months. ensure_caddy only updates them when Caddy
+  # is missing too, which on an existing box it is not.
+  apt_get update && apt_get install -y unclutter && return 0
+  echo "could not install unclutter; the pointer may show on the display"
+}
+
+# The units run the app and the kiosk as pi, on pi's desktop. Bookworm's imager
+# no longer creates that user unless asked, and without it this script gets as
+# far as `chown pi:pi` with the hostname, packages and units already changed.
+require_pi_user() {
+  if id -u pi >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "This Pi has no user named pi, and Hall Clock runs as pi, on pi's desktop."
+  echo "Re-image the card with Raspberry Pi Imager, setting the username to pi"
+  echo "in its OS customisation settings, then run this again."
+  exit 1
+}
+
+# An arm64 build copied onto a 32-bit Pi, or an armv7 one onto a Pi Zero,
+# installs without complaint and then crash-loops under systemd: exec format
+# error, or SIGILL on the first instruction the CPU lacks. Ask it for its
+# version first, before anything on the box has changed.
+#
+# The trial runs an executable copy, placed where the real one will live, so a
+# binary that merely lost its execute bit on the way over (a browser download
+# does that) is not mistaken for the wrong build. And it runs through bash, not
+# this sh: on "exec format error" dash falls back to reading the file as a
+# shell script, which would feed a foreign binary to sh, as root, line by line.
+# bash refuses a binary file instead.
+check_binary_runs() {
+  install -d -m 0755 "$APP_DIR"
+  probe="$APP_DIR/.hall-clock.probe"
+  install -m 0755 "$BIN_SRC" "$probe"
+  if bash -c '"$1" -version' hall-clock "$probe" >/dev/null 2>&1; then
+    rm -f "$probe"
+    return 0
+  fi
+  rm -f "$probe"
+
+  arch="$(uname -m)"
+  # The same names hall-clock-update.sh downloads for each CPU.
+  case "$arch" in
+    aarch64 | arm64) asset="hall-clock-linux-arm64" make_target="build-pi" ;;
+    armv7l) asset="hall-clock-linux-armv7" make_target="build-pi-armv7" ;;
+    armv6l) asset="hall-clock-linux-armv6" make_target="build-pi-armv6" ;;
+    *) asset="" make_target="" ;;
+  esac
+  echo "$BIN_SRC does not run on this Pi (uname -m: $arch)."
+  if [ -n "$asset" ]; then
+    echo "This Pi needs $asset: download it from the GitHub release, or build it"
+    echo "with 'make $make_target', copy it to $BIN_SRC, and run this again."
+  else
+    echo "Hall Clock publishes no build for $arch."
+  fi
+  exit 1
+}
+
+# desktop_session_types prints the type of each login session logind knows
+# about (x11, wayland, tty, ...), one per line.
+desktop_session_types() {
+  command -v loginctl >/dev/null 2>&1 || return 0
+  for session in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+    loginctl show-session "$session" -p Type --value 2>/dev/null || true
+  done
+}
+
+# The kiosk opens Chromium on X display :0, which the X11 desktop provides.
+# Bookworm defaults a Pi 4 or 5 to a Wayland desktop (Wayfire, later labwc), and
+# under that the TV shows nothing. Judge by the desktop actually running:
+# lightdm.conf is not proof, because a Bookworm image names the Wayland session
+# even on the older Pis that lightdm then falls back to X11 on. Any X11 session,
+# or no desktop at all, stays quiet. This only ever warns, and a wrong guess
+# must not alarm a hall whose X11 kiosk works.
+warn_wayland() {
+  types="$(desktop_session_types)"
+  case "$types" in
+    *x11*) return 0 ;;
+    *wayland*) ;;
+    *) return 0 ;;
+  esac
+  echo
+  echo "WARNING: this Pi is running a Wayland desktop, and the clock will not"
+  echo "         appear on the TV under it. The kiosk needs the X11 desktop."
+  echo "         Switch to X11, then reboot:"
+  echo
+  echo "           sudo raspi-config nonint do_wayland W1"
+  echo "           sudo reboot"
+  echo
 }
 
 if [ ! -f "$BIN_SRC" ]; then
@@ -97,7 +203,11 @@ if [ ! -f "$BIN_SRC" ]; then
   exit 1
 fi
 
+require_pi_user
+check_binary_runs
+
 ensure_caddy
+ensure_unclutter
 
 if ! systemctl list-unit-files caddy.service >/dev/null 2>&1; then
   echo "Caddy service not found."
@@ -167,3 +277,5 @@ echo "Pair:    http://${HALL_HOST}.local/pair"
 echo "Name it: http://${HALL_HOST}.local/setup > Device name (shown on the controller)"
 echo "Updates: checked nightly; installed from Setup > Software, or with"
 echo "         sudo systemctl start hall-clock-update.service"
+# Last, so apt's output does not scroll it away.
+warn_wayland

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older. Naming a file to include backs up that file only, so
+     the WebView's storage (the pairing token) never leaves the phone. The
+     preferences file is MainActivity's "hall-clock": the clock address. -->
+<full-backup-content>
+    <include domain="sharedpref" path="hall-clock.xml" />
+</full-backup-content>

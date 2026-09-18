@@ -158,6 +158,24 @@ func TestPairingStatusReportsPINLength(t *testing.T) {
 	}
 }
 
+// Two halls on one network look identical from an unpaired phone. The PIN
+// prompt names the hall, so a phone that opened the wrong one can tell.
+func TestPairingStatusNamesTheHall(t *testing.T) {
+	srv, mux := newSecuredTestServer(t)
+	srv.mu.Lock()
+	srv.config.DeviceName = "East Hall"
+	srv.mu.Unlock()
+
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/api/pairing", nil))
+	var status struct {
+		DeviceName string `json:"deviceName"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &status); err != nil || status.DeviceName != "East Hall" {
+		t.Fatalf("expected the hall's name in pairing status, got %s (%v)", res.Body.String(), err)
+	}
+}
+
 // Before a PIN exists there is no length to advertise — the field would only
 // invite the dialog to auto-claim against a PIN nobody can type.
 func TestPairingStatusOmitsPINLengthWhenUnset(t *testing.T) {

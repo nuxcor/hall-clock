@@ -18,26 +18,44 @@ itself, which is why the shell holds the screen awake (see below).
 - Loads the controller full screen, dark-themed to match it, with a spinner
   from the moment a load starts — a phone slow to resolve `.local` shows
   nothing at all until DNS gives up, and a black rectangle reads as a crash.
-- **No setup screen.** The clock's address is built in (`host_default` in
-  `strings.xml` — the one value to change when pointing a build at a different
-  hall) and the app opens it straight away. Every phone in a hall talks to the
-  same Pi, so asking each operator to type an address is friction for all of
-  them and a typo waiting to happen. It can still be changed at runtime, from
-  the error screen or the back menu, and that value is stored in app
-  preferences. Anything reasonable is accepted — a bare name, an IP, a
+- **Finds its hall on first launch.** The app asks every name in
+  `hall_candidates` (`strings.xml`: `hallclock`, `hallclock-2`…`-4`,
+  `hallclock-b`…`-d`) at once, for about six seconds, and keeps the ones that
+  answer `/api/state` as a hall clock.
+  - **One hall found** (most congregations): it opens straight away, with no
+    question asked.
+  - **Two or more** (two halls on one Wi-Fi): a one-time "Which hall are you
+    in?" list names each by the **Device name** set on its setup page, with its
+    address under it. Name both halls, or the list can only show addresses.
+  - **None:** it opens `host_default`, and the error screen explains what to
+    check.
+  The choice is stored as a single address in app preferences; after that the
+  app opens it directly. This replaced opening `hallclock.local` blindly: on a
+  network shared by two halls that always answers, so the second hall's
+  operators landed on the first hall's PIN prompt with nothing to tell them.
+- **Change address** (back menu, error screen) runs the same search and shows
+  the list with the current hall ticked, plus **Another address** for typing
+  one. Anything reasonable is accepted there — a bare name, an IP, a
   `host:port`, or a pasted `http://`/`https://` URL, scheme preserved so a hall
   behind a real certificate is not downgraded.
-- **One hall per build, deliberately — not a picker.** A second hall
-  (`hallclock-2.local`) does not get its own entry in a list: operators belong
-  to one hall, so a phone is pointed once and never again, and a saved-address
-  picker would be persistent machinery — with its own eviction rules — serving
-  a one-time act. Hall two's phones enter that address once from the error
-  screen and keep it. Revisit only if people start working both halls.
+- **Still one hall at a time, not a saved list.** The search replaces typing,
+  not the single stored address: operators belong to one hall, and a list of
+  saved halls with its own eviction rules was built once and removed as
+  machinery for a one-time act. The controller's PIN prompt names the hall it
+  is pairing with ("Enter the PIN for East Hall"), so a wrong pick shows at
+  once.
 - **Keeps the screen on.** A meeting outlasts any screen timeout, and the page
   cannot ask for this itself: the Screen Wake Lock API requires a secure
   context, which a plain-HTTP hall will never have. The shell is the only
   place this can be fixed.
 - Keeps localStorage (the pairing token), so pairing survives relaunches.
+  The token is **never** backed up or carried to a new phone: it is a
+  credential for the hall's clock. Backup and device-to-device transfer carry
+  the clock address only (`res/xml/backup_rules.xml` up to Android 11,
+  `res/xml/data_extraction_rules.xml` from 12, where `allowBackup` alone does
+  not stop a transfer). A restored or new phone therefore still points at its
+  own hall — `hallclock-2.local` stays `hallclock-2.local` — and pairs again
+  with that hall's PIN.
 - Back walks WebView history; at the root it asks before closing, and that
   dialog is also where **Change address** lives. It has to be reachable from a
   working page: an address that loads *something* (a router's admin page, say)

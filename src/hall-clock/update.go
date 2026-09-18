@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +32,11 @@ const (
 	// updateCheckTTL caps how often we ask GitHub for the latest tag. The setup
 	// page asks on every load, and the API is rate-limited per IP.
 	updateCheckTTL = 15 * time.Minute
+
+	// updateForceMinInterval is how soon "check again" may go back to GitHub.
+	// The link needs no token, and unthrottled it let anything on the network
+	// spend the hall's 60 requests an hour — the updater's own check included.
+	updateForceMinInterval = 30 * time.Second
 )
 
 // UpdateStatus mirrors the JSON that hall-clock-update.sh writes. Phases:
@@ -110,7 +117,11 @@ type updateChecker struct {
 func (u *updateChecker) latest(ctx context.Context, now time.Time, force bool) (string, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	if !force && !u.checkedAt.IsZero() && now.Sub(u.checkedAt) < updateCheckTTL {
+	fresh := updateCheckTTL
+	if force {
+		fresh = updateForceMinInterval
+	}
+	if !u.checkedAt.IsZero() && now.Sub(u.checkedAt) < fresh {
 		return u.tag, u.err
 	}
 	tag, err := latestReleaseTagFunc(ctx, u.repo)
@@ -132,6 +143,10 @@ func (u *updateChecker) latest(ctx context.Context, now time.Time, force bool) (
 // a binary built from a working tree. A describe string that starts with the
 // latest tag is a build made *after* that release, so offering it is a downgrade
 // dressed up as an update.
+//
+// Versions are compared by order, not just for difference: when GitHub's latest
+// is older than what is running — a release deleted or rolled back — offering
+// it would be a downgrade too.
 func updateAvailable(current, latest string) bool {
 	if latest == "" || current == "dev" || current == "unknown" {
 		return false
@@ -139,7 +154,40 @@ func updateAvailable(current, latest string) bool {
 	if current == latest || strings.HasPrefix(current, latest+"-") {
 		return false
 	}
+	currentVersion, currentOK := parseReleaseVersion(current)
+	latestVersion, latestOK := parseReleaseVersion(latest)
+	if currentOK && latestOK {
+		return compareReleaseVersions(latestVersion, currentVersion) > 0
+	}
 	return true
+}
+
+// parseReleaseVersion reads the vMAJOR.MINOR.PATCH at the front of a tag or a
+// git describe string ("v1.2.0-3-gabc1234", "v1.2.0-dirty").
+func parseReleaseVersion(tag string) ([3]int, bool) {
+	var out [3]int
+	core, _, _ := strings.Cut(strings.TrimPrefix(tag, "v"), "-")
+	fields := strings.Split(core, ".")
+	if len(fields) != 3 {
+		return out, false
+	}
+	for i, field := range fields {
+		n, err := strconv.Atoi(field)
+		if err != nil || n < 0 {
+			return out, false
+		}
+		out[i] = n
+	}
+	return out, true
+}
+
+func compareReleaseVersions(a, b [3]int) int {
+	for i := range a {
+		if a[i] != b[i] {
+			return cmp.Compare(a[i], b[i])
+		}
+	}
+	return 0
 }
 
 func readUpdateStatus(path string) *UpdateStatus {
@@ -162,16 +210,25 @@ func updateSupported(triggerPath string) bool {
 	return err == nil && info.IsDir()
 }
 
+// updateAllowedLocked reports whether an update may restart the app now. The
+// restart blanks the TV and resets the timer, so it waits for a gap between
+// meetings: not while one is in progress — idle between parts included — and
+// not during the countdown to the next.
+func (s *server) updateAllowedLocked(now time.Time) bool {
+	s.recalculateLocked(now)
+	return !s.state.MeetingInProgress && !s.state.PrestartActive
+}
+
 func (s *server) handleUpdateInfo(w http.ResponseWriter, r *http.Request) {
 	now := s.clock()
 	s.mu.Lock()
-	idle := s.state.Status == StatusIdle
+	allowed := s.updateAllowedLocked(now)
 	s.mu.Unlock()
 
 	info := UpdateInfo{
 		Version:   version,
 		Supported: updateSupported(s.updateTriggerPath),
-		CanUpdate: idle,
+		CanUpdate: allowed,
 		Status:    readUpdateStatus(s.updateStatusPath),
 	}
 	if _, err := os.Stat(s.updateTriggerPath); err == nil {
@@ -180,7 +237,11 @@ func (s *server) handleUpdateInfo(w http.ResponseWriter, r *http.Request) {
 
 	// ?refresh=1 is the "check again" link; a normal page load uses the cache.
 	force := r.URL.Query().Get("refresh") == "1"
-	latest, err := s.updates.latest(r.Context(), now, force)
+	// Detached from the request: the answer is cached for everyone, so a phone
+	// that navigates away mid-check must not leave "could not reach GitHub"
+	// on the setup page for the next fifteen minutes. The client's own timeout
+	// still bounds the call.
+	latest, err := s.updates.latest(context.WithoutCancel(r.Context()), now, force)
 	if err != nil {
 		info.CheckError = err.Error()
 	}
@@ -201,12 +262,10 @@ func (s *server) handleUpdateStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	idle := s.state.Status == StatusIdle
+	allowed := s.updateAllowedLocked(s.clock())
 	s.mu.Unlock()
-	// Installing restarts the app, which resets a running countdown to idle.
-	// Same rule as circuit-overseer mode: only while nothing is on the screen.
-	if !idle {
-		http.Error(w, "updates can only be installed while the timer is idle", http.StatusConflict)
+	if !allowed {
+		http.Error(w, "updates can only be installed between meetings", http.StatusConflict)
 		return
 	}
 
@@ -231,7 +290,7 @@ func (s *server) handleUpdateStart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, UpdateInfo{
 		Version:   version,
 		Supported: true,
-		CanUpdate: idle,
+		CanUpdate: allowed,
 		Pending:   true,
 		Status:    readUpdateStatus(s.updateStatusPath),
 	})

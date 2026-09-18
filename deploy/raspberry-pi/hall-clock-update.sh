@@ -95,16 +95,90 @@ fail() {
   exit 1
 }
 
-# app_status prints the timer's status ("idle", "running", "paused"), or nothing
-# when the app is unreachable. /api/state is unauthenticated but reachable only
-# through the Unix socket, so this needs no pairing token.
+# app_state prints the app's /api/state JSON, or nothing when the app is
+# unreachable. /api/state is unauthenticated but reachable only through the Unix
+# socket, so this needs no pairing token.
 #
 # Trailing `|| true` on both fetches: under `set -o pipefail` a failed curl would
 # otherwise abort the script from inside a `$(...)`, instead of leaving the empty
 # output their callers are written to handle.
+app_state() {
+  curl -fsS --max-time 5 --unix-socket "$SOCKET" http://localhost/api/state 2>/dev/null || true
+}
+
+# state_status prints the timer's status ("idle", "running", "paused") from a
+# state document, or nothing when there is none.
+state_status() {
+  sed -n 's/.*"status":"\([^"]*\)".*/\1/p' <<<"$1"
+}
+
+# app_status prints the timer's status, or nothing when the app is unreachable.
 app_status() {
-  curl -fsS --max-time 5 --unix-socket "$SOCKET" http://localhost/api/state 2>/dev/null |
-    sed -n 's/.*"status":"\([^"]*\)".*/\1/p' || true
+  state_status "$(app_state)"
+}
+
+# state_true succeeds when the state document $1 has "$2":true. The Go encoder
+# writes compact JSON ("prestartActive":false,) and escapes any quote a person
+# typed into a name or title, so only a real field can match. A field an older
+# app does not send never matches, which reads as false. A bash match rather
+# than `printf | grep -q`: under pipefail, grep quitting early can SIGPIPE the
+# printf and turn a match into a failure.
+state_true() {
+  local pattern="\"$2\"[[:space:]]*:[[:space:]]*true"
+  [[ $1 =~ $pattern ]]
+}
+
+# meeting_busy prints why an install has to wait, or nothing when it may go
+# ahead. Installing restarts the app, which blanks the TV while it comes back
+# and rebuilds state with the timer reset, so it waits for the gap between
+# meetings: not while a part is on the clock, not while the clock sits idle
+# between parts (meetingInProgress), and not during the pre-meeting countdown
+# (prestartActive). An app that does not answer is not busy — installing is how
+# a broken app gets fixed.
+meeting_busy() {
+  local state status
+  state="$(app_state)"
+  status="$(state_status "$state")"
+  if { [ -n "$status" ] && [ "$status" != "idle" ]; } || state_true "$state" meetingInProgress; then
+    echo "Meeting in progress; update after it ends"
+  elif state_true "$state" prestartActive; then
+    echo "Meeting about to start; update after it ends"
+  fi
+}
+
+# defer_if_meeting records a deferral and ends the run when a meeting is busy.
+# Nothing has been replaced at either place it is called, so stopping is free.
+defer_if_meeting() {
+  local busy
+  busy="$(meeting_busy)"
+  if [ -n "$busy" ]; then
+    log "${busy}; not updating to ${latest}"
+    write_status deferred "$busy"
+    exit 0
+  fi
+}
+
+# unattended-upgrades can hold the dpkg lock for minutes, and apt-get gives up
+# on a held lock at once unless told to wait. Wait, but boundedly: this runs
+# inside an update somebody is watching, for a package that is only cosmetic.
+apt_get() {
+  DEBIAN_FRONTEND=noninteractive apt-get -q -o DPkg::Lock::Timeout=60 "$@"
+}
+
+# The kiosk script hides the X pointer with unclutter when it is present, but an
+# existing box has never run install.sh again, so nothing else would ever put it
+# there. Best-effort and never fatal: an update must not fail over a cosmetic
+# package, and a box with no apt mirror reachable still gets the new binary.
+# apt's stderr is left to the journal, so a failure there says why.
+install_unclutter() {
+  command -v unclutter >/dev/null 2>&1 && return 0
+  log "installing unclutter to hide the pointer on the display"
+  apt_get install -y unclutter >/dev/null && return 0
+  # Stale package lists are the usual reason the first attempt fails, and a box
+  # that has only ever been updated through here has not refreshed them since
+  # it was imaged — which is every box this step exists for.
+  apt_get update >/dev/null && apt_get install -y unclutter >/dev/null && return 0
+  log "could not install unclutter; the pointer may show on the display"
 }
 
 asset_for_arch() {
@@ -162,16 +236,10 @@ if [ "$MODE" = check ]; then
   exit 0
 fi
 
-# A restart rebuilds state from config with the timer reset to idle, so updating
-# mid-meeting would blank a running countdown on the projector. The setup page's
-# Update button is disabled while a meeting runs; this guards the ssh path and
-# any race between the tap and the meeting starting.
-status="$(app_status)"
-if [ -n "$status" ] && [ "$status" != "idle" ]; then
-  log "meeting in progress (status ${status}); refusing to update to ${latest}"
-  write_status deferred "Meeting in progress; reset the timer and try again"
-  exit 0
-fi
+# The app's own Update button already refuses during a meeting; this guards the
+# ssh path and any race between the tap and the meeting starting. Checked here,
+# before spending a download on it, and again just before anything is replaced.
+defer_if_meeting
 
 log "updating ${current} -> ${latest}"
 write_status downloading "Downloading ${latest}"
@@ -204,9 +272,22 @@ tar -xzf "$DEPLOY_ASSET" -C deploy
 chmod 0755 "$asset"
 chown root:root "$asset"
 
-# Keep copies of the units and Caddyfile about to be replaced: a rollback that
-# restores only the old binary under incompatible new units leaves the box just
-# as dead as the failed update did.
+# The downloads are done, and what follows can take a minute (apt above all).
+# Say so rather than leave the page on "Downloading". This rides on the
+# downloading phase because it is the in-flight phase whose message the setup
+# page shows as written; a phase of its own would be one the app cannot render.
+write_status downloading "Installing ${latest}"
+
+install_unclutter
+
+# Last chance to call it off: nothing has been replaced yet, and a slow download
+# or apt can carry a run that started between meetings into the next one's
+# countdown. From here to the restart is seconds.
+defer_if_meeting
+
+# Keep copies of the units, Caddyfile and scripts about to be replaced: a
+# rollback that restores only the old binary, under new units and scripts it
+# was never run with, can leave the box just as dead as the failed update did.
 prev_deploy="${staging}/previous-deploy"
 mkdir -p "$prev_deploy"
 for f in hall-clock.service hall-clock-kiosk.service hall-clock-update.service \
@@ -214,6 +295,11 @@ for f in hall-clock.service hall-clock-kiosk.service hall-clock-update.service \
   hall-clock-housekeeping.service hall-clock-housekeeping.timer; do
   if [ -f "$UNIT_DIR/$f" ]; then
     cp -p "$UNIT_DIR/$f" "$prev_deploy/$f"
+  fi
+done
+for f in hall-clock-kiosk.sh hall-clock-update.sh hall-clock-housekeeping.sh; do
+  if [ -f "$APP_DIR/$f" ]; then
+    cp -p "$APP_DIR/$f" "$prev_deploy/$f"
   fi
 done
 if [ -f "$CADDY_DIR/Caddyfile" ]; then
@@ -260,14 +346,21 @@ rollback() {
   log "rolling back to ${current}"
   mv -f "$PREVIOUS" "$BIN"
   sync -f "$BIN" || true
-  # Restore the units and Caddyfile that were live before this update: the old
-  # binary must come back up under the configuration it was proven with.
+  # Restore the units, Caddyfile and scripts that were live before this update:
+  # the old binary must come back up under the configuration it was proven with.
   for f in "$prev_deploy"/*; do
     if [ -f "$f" ]; then
       case "$(basename "$f")" in
         Caddyfile)
           install -m 0644 "$f" "$CADDY_DIR/Caddyfile"
           systemctl try-restart caddy.service >/dev/null 2>&1 || true
+          ;;
+        # One of these is this script, still running. That is safe for the same
+        # reason the install above was: install unlinks the file it replaces and
+        # writes a new inode, and bash keeps reading the one it has open. (A cp
+        # onto the path would truncate that inode under the running script.)
+        *.sh)
+          install -m 0755 "$f" "$APP_DIR/$(basename "$f")"
           ;;
         *)
           install -m 0644 "$f" "$UNIT_DIR/$(basename "$f")"
@@ -290,6 +383,9 @@ fi
 
 # The unit restarts on failure, so "active" alone does not mean the new binary
 # works. Wait for it to answer on the socket before calling the update good.
+# Answering is all this asks: a countdown that began during the restart is the
+# new app working, and treating it as a failure would roll back and restart the
+# display a second time.
 for _ in $(seq 1 15); do
   if [ -n "$(app_status)" ]; then
     log "updated to ${latest}"

@@ -3,10 +3,32 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// maxControlBody bounds the small JSON bodies of the control endpoints. A paired
+// phone is trusted to drive the clock, not to make a 512 MB Pi buffer whatever
+// it cares to send.
+const maxControlBody = 64 << 10
+
+func decodeBody(w http.ResponseWriter, r *http.Request, limit int64, v any) error {
+	return json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(v)
+}
+
+// scheduleSizeOK refuses a programme longer than any saved one may be. Imports
+// are checked too: a megabyte of pasted timings is ten thousand parts, held in
+// memory and rebroadcast to every screen, numbered into the ad-hoc range, and
+// then impossible to save back from the setup page.
+func scheduleSizeOK(w http.ResponseWriter, schedule []Talk) bool {
+	if len(schedule) > maxScheduleParts {
+		http.Error(w, fmt.Sprintf("a schedule can have at most %d items", maxScheduleParts), http.StatusBadRequest)
+		return false
+	}
+	return true
+}
 
 func (s *server) handleState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.snapshot())
@@ -39,15 +61,19 @@ func (s *server) handleConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleStart(w http.ResponseWriter, r *http.Request) {
+	now := s.clock()
 	s.mu.Lock()
 	// Reconcile before locking the program in: with no SSE subscriber ticking,
-	// a pending idle-time swap (meeting-type flip, language sync, expired
+	// a pending between-meetings swap (meeting-type flip, language sync, expired
 	// override) would otherwise be skipped and the stale program would run the
 	// whole meeting.
-	s.recalculateLocked(s.clock())
+	s.recalculateLocked(now)
 	if s.state.Status != StatusRunning {
-		s.startedAt = s.clock()
+		// A resumed part picks up the fraction of a second it had already used.
+		s.startedAt = now.Add(-s.pauseCarry)
+		s.pauseCarry = 0
 		s.state.Status = StatusRunning
+		s.meetingActiveAt = now
 	}
 	state := s.snapshotLocked()
 	s.mu.Unlock()
@@ -57,10 +83,13 @@ func (s *server) handleStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handlePause(w http.ResponseWriter, r *http.Request) {
+	now := s.clock()
 	s.mu.Lock()
-	s.recalculateLocked(s.clock())
+	s.recalculateLocked(now)
 	if s.state.Status == StatusRunning {
 		s.remainingAt = s.state.RemainingSeconds
+		elapsed := now.Sub(s.startedAt)
+		s.pauseCarry = elapsed - elapsed.Truncate(time.Second)
 		s.state.Status = StatusPaused
 	}
 	state := s.snapshotLocked()
@@ -84,6 +113,8 @@ func (s *server) handleEndMeeting(w http.ResponseWriter, r *http.Request) {
 	s.state.ElapsedSeconds = 0
 	s.state.OvertimeSeconds = 0
 	s.retiredOverruns = nil
+	s.meetingActiveAt = time.Time{}
+	s.pauseCarry = 0
 	state := s.snapshotLocked()
 	s.mu.Unlock()
 
@@ -96,34 +127,40 @@ func (s *server) handleEndMeeting(w http.ResponseWriter, r *http.Request) {
 // otherwise, and pause already lives on the primary button. The route stays as
 // an alias for /api/control/next so existing links and scripts keep working.
 func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
-	s.changeTalk(w, 1)
+	s.changeTalk(w, r, 1)
 }
 
 func (s *server) handleNext(w http.ResponseWriter, r *http.Request) {
-	s.changeTalk(w, 1)
+	s.changeTalk(w, r, 1)
 }
 
 func (s *server) handlePrevious(w http.ResponseWriter, r *http.Request) {
-	s.changeTalk(w, -1)
+	s.changeTalk(w, r, -1)
 }
 
 func (s *server) handleAdjust(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		DeltaSeconds int `json:"deltaSeconds"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeBody(w, r, maxControlBody, &body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
 
 	s.mu.Lock()
 	s.recalculateLocked(s.clock())
-	s.state.DurationSeconds = max(60, s.state.DurationSeconds+body.DeltaSeconds)
-	s.state.RemainingSeconds = max(-3600, s.state.RemainingSeconds+body.DeltaSeconds)
-	s.remainingAt = s.state.RemainingSeconds
-	if s.state.Status == StatusRunning {
-		s.startedAt = s.clock()
-	}
+	// Move the part's length and its time left by the same amount, so the time
+	// already spoken — their difference — never changes. Clamping one and not
+	// the other let two taps of −1 min on a one-minute part put the meeting a
+	// minute behind before anyone had spoken. The count carries on from the
+	// same start rather than restarting at now, which dropped a fraction of a
+	// second on every tap.
+	duration := max(60, s.state.DurationSeconds+body.DeltaSeconds)
+	delta := duration - s.state.DurationSeconds
+	s.state.DurationSeconds = duration
+	s.state.RemainingSeconds += delta
+	s.state.OvertimeSeconds = max(0, -s.state.RemainingSeconds)
+	s.remainingAt += delta
 	state := s.snapshotLocked()
 	s.mu.Unlock()
 
@@ -135,7 +172,7 @@ func (s *server) handleSetTime(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Seconds int `json:"seconds"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeBody(w, r, maxControlBody, &body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
@@ -162,8 +199,13 @@ func (s *server) handleSetTime(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleSelect(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		TalkID int `json:"talkId"`
+		// FromTalkID, when sent, is the item the phone believed was current,
+		// as with changeTalk. Reset part re-selects "the current item", and on a
+		// phone whose stream has fallen behind that can be one the clock has
+		// already left: restarting it would drag the meeting back a part.
+		FromTalkID int `json:"fromTalkId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeBody(w, r, maxControlBody, &body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
@@ -171,6 +213,11 @@ func (s *server) handleSelect(w http.ResponseWriter, r *http.Request) {
 	now := s.clock()
 	s.mu.Lock()
 	s.recalculateLocked(now)
+	if body.FromTalkID != 0 && body.FromTalkID != s.state.CurrentTalkID {
+		s.mu.Unlock()
+		http.Error(w, "the clock has already moved on", http.StatusPreconditionFailed)
+		return
+	}
 	// Re-selecting the current part is a restart, not a departure, and a request
 	// for a part that does not exist leaves nothing behind.
 	if body.TalkID != s.state.CurrentTalkID && s.hasTalkLocked(body.TalkID) {
@@ -199,11 +246,11 @@ func (s *server) handleAdhocPart(w http.ResponseWriter, r *http.Request) {
 		// controller page working across an update.
 		AfterTalkID *int `json:"afterTalkId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeBody(w, r, maxControlBody, &body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
-	title := strings.TrimSpace(body.Title)
+	title := truncateRunes(strings.TrimSpace(body.Title), maxTitleRunes)
 	if title == "" {
 		title = "Additional item"
 	}
@@ -232,7 +279,9 @@ func (s *server) handleAdhocPart(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	nextID := 1
+	// Ad-hoc ids come from their own range, above anything a saved programme
+	// can use, so a later save or import can never add a part with the same id.
+	nextID := temporaryPartIDBase
 	for _, talk := range s.talks {
 		nextID = max(nextID, talk.ID+1)
 	}
@@ -265,7 +314,7 @@ func (s *server) handleRemovePart(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		TalkID int `json:"talkId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeBody(w, r, maxControlBody, &body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
@@ -320,7 +369,7 @@ func (s *server) handleCircuitOverseer(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		On bool `json:"on"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeBody(w, r, maxControlBody, &body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
@@ -360,7 +409,7 @@ func (s *server) handleMidweekLanguage(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Language string `json:"language"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeBody(w, r, maxControlBody, &body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
@@ -404,9 +453,10 @@ func (s *server) handleMidweekLanguage(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	var body Config
-	// The token is printed on a QR in a public hall, so "authenticated" means
-	// "anyone present": never parse an unbounded body on a 512 MB Pi.
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+	// Any phone that has paired can post here, and whatever it saves is held in
+	// memory and rebroadcast to every screen four times a second: never parse
+	// an unbounded body, or keep an unbounded setting, on a 512 MB Pi.
+	if err := decodeBody(w, r, 1<<20, &body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
@@ -414,9 +464,25 @@ func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "schedule cannot be empty", http.StatusBadRequest)
 		return
 	}
+	if !scheduleSizeOK(w, body.Schedule) {
+		return
+	}
+	if len(body.MeetingStarts) > maxMeetingStarts {
+		http.Error(w, fmt.Sprintf("at most %d meeting start times", maxMeetingStarts), http.StatusBadRequest)
+		return
+	}
+	if len(body.MidweekURL) > maxURLLength || len(body.AdvertisedBaseURL) > maxURLLength {
+		http.Error(w, "URL is too long", http.StatusBadRequest)
+		return
+	}
+	for _, start := range body.MeetingStarts {
+		if len(start.MidweekURL) > maxURLLength {
+			http.Error(w, "URL is too long", http.StatusBadRequest)
+			return
+		}
+	}
 
-	normalizeSchedule(body.Schedule)
-	body.DeviceName = strings.TrimSpace(body.DeviceName)
+	body.DeviceName = truncateRunes(strings.TrimSpace(body.DeviceName), maxNameRunes)
 	if body.DeviceName == "" {
 		body.DeviceName = "Hall Clock"
 	}
@@ -433,6 +499,18 @@ func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	body.PrestartSeconds = clamp(body.PrestartSeconds, 60, 1800)
 
 	s.mu.Lock()
+	// The setup page sends back the ids it loaded, and its new parts are numbered
+	// above every id the clock holds. A schedule with no ids at all comes from a
+	// script or an older page; numbering it by position, as before, is the best
+	// guess there is.
+	floor := 0
+	for _, talk := range body.Schedule {
+		if validPartID(talk.ID) {
+			floor = s.highestPartIDLocked()
+			break
+		}
+	}
+	normalizeScheduleAbove(body.Schedule, floor)
 	// Read under the lock: the auto-import goroutine writes this map, and an
 	// unsynchronized iteration of it aborts the process.
 	existingLanguageSchedules := copyMidweekLanguageScheduleMap(s.config.MidweekLanguageSchedules)
@@ -611,7 +689,7 @@ func (s *server) handleImportMidweek(w http.ResponseWriter, r *http.Request) {
 		URL   string `json:"url"`
 		Apply bool   `json:"apply"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeBody(w, r, maxControlBody, &body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
@@ -625,6 +703,9 @@ func (s *server) handleImportMidweek(w http.ResponseWriter, r *http.Request) {
 	schedule, err := importMidweekFromURL(r.Context(), sourceURL)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !scheduleSizeOK(w, schedule) {
 		return
 	}
 
@@ -676,7 +757,7 @@ func (s *server) handleImportMidweekText(w http.ResponseWriter, r *http.Request)
 		Text  string `json:"text"`
 		Apply bool   `json:"apply"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+	if err := decodeBody(w, r, 1<<20, &body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
@@ -684,6 +765,9 @@ func (s *server) handleImportMidweekText(w http.ResponseWriter, r *http.Request)
 	schedule, err := parseMidweekTimings(body.Text)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !scheduleSizeOK(w, schedule) {
 		return
 	}
 
@@ -727,7 +811,7 @@ func setupResponse(state State, config Config, now time.Time) State {
 	state.MeetingType = config.MeetingType
 	// Resolve against the status in the snapshot, not a fresh read, so the setup
 	// page and the broadcast state always agree about which program is running.
-	state.Schedule = append([]Talk(nil), effectiveMidweekSchedule(config, state.Status, now)...)
+	state.Schedule = append([]Talk(nil), effectiveMidweekSchedule(config, state.MeetingInProgress, now)...)
 	return state
 }
 
@@ -769,13 +853,31 @@ func (s *server) applyTemplate(w http.ResponseWriter, meetingType string, schedu
 	writeJSON(w, setupResponse(state, config, s.clock()))
 }
 
-func (s *server) changeTalk(w http.ResponseWriter, delta int) {
+func (s *server) changeTalk(w http.ResponseWriter, r *http.Request, delta int) {
+	// fromTalkId is the item the phone was showing when the operator tapped.
+	// Advancing is not idempotent, so a retry after a timeout that had in fact
+	// landed, or a second tap queued behind the first, must not move the meeting
+	// on twice. Absent — an older page, a script — keeps the old behaviour, and
+	// so does a body that is not JSON at all: these routes never read one
+	// before, and a script posting `-d go` must not start failing.
+	var body struct {
+		FromTalkID int `json:"fromTalkId"`
+	}
+	if err := decodeBody(w, r, maxControlBody, &body); err != nil {
+		body.FromTalkID = 0
+	}
+
 	now := s.clock()
 	s.mu.Lock()
 	// Recalculate before reading s.talks, never after: it purges stale ad-hoc
 	// parts and can swap the whole schedule, so an index taken beforehand may not
 	// survive it.
 	s.recalculateLocked(now)
+	if body.FromTalkID != 0 && body.FromTalkID != s.state.CurrentTalkID {
+		s.mu.Unlock()
+		http.Error(w, "the clock has already moved on", http.StatusPreconditionFailed)
+		return
+	}
 	idx := 0
 	for i, talk := range s.talks {
 		if talk.ID == s.state.CurrentTalkID {

@@ -397,11 +397,20 @@ func (s *server) applyAutoImportedScheduleLocked(now time.Time, source autoImpor
 	s.config.MidweekURL = docURL
 	s.config.MidweekLanguage = importLanguage
 	s.config.MidweekImportedWeek = currentWeek
-	s.setBaselineScheduleLocked(schedule)
+	// Nobody asked for this program, so it must not throw away one somebody
+	// did: an hourly retry that succeeded at ten to seven used to wipe the edit
+	// made for the seven o'clock meeting. The new baseline lands behind the
+	// edit and takes over once the edit lapses.
+	if s.scheduleOverrideAppliesLocked(now) {
+		s.config.Schedule = schedule
+	} else {
+		s.setBaselineScheduleLocked(schedule)
+	}
 	// Never swap the program under a meeting in progress — a late-running or
-	// unconfigured meeting is outside the suppression window. The new baseline
-	// lands at the first idle recalculation instead.
-	if s.state.Status == StatusIdle {
+	// unconfigured meeting is outside the suppression window. Idle is not the
+	// test: the clock is idle between every pair of parts. The new baseline
+	// lands at the first recalculation after the meeting instead.
+	if !s.meetingInProgressLocked(now) {
 		s.applyActiveScheduleChangeLocked(now)
 	}
 	state := s.snapshotLocked()

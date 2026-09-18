@@ -79,10 +79,12 @@
     button.disabled = inFlight || !info.updateAvailable || !info.canUpdate;
     checkButton.disabled = inFlight;
 
-    // The Update button restarts the app, which resets a running countdown, so
-    // it stays disabled until the timer is back to idle (same rule as CO mode).
+    // Installing restarts the clock, so the server only allows it between
+    // meetings: not during one, including the idle gaps between its parts,
+    // and not during the pre-meeting countdown. Resetting the timer to idle
+    // no longer unlocks it, so this must not tell anybody to.
     if (info.updateAvailable && !info.canUpdate) {
-      status.textContent = "Reset the timer to idle to update";
+      status.textContent = "Updates install between meetings, not during one or its countdown";
     }
     return true;
   }
@@ -127,9 +129,16 @@
       updating = true;
       schedule(POLL_MS);
     } catch (error) {
-      // The server refused (not idle, or already updating). Re-render from a
-      // fresh fetch rather than leaving the button disabled until the next poll.
-      const message = String(error.message || error).trim() || "Could not start the update";
+      // The server refused (a meeting on or about to start, or already
+      // updating). Re-render from a fresh fetch rather than leaving the button
+      // disabled until the next poll.
+      let message = String(error.message || error).trim() || "Could not start the update";
+      // A dead token: shared.js has already dropped it, so ask for the PIN
+      // here, or every later press goes out with no token until a reload.
+      if (error.status === 401) {
+        message = "This device had to pair again. Press Update again.";
+        WallClock.repairPairing();
+      }
       await tick(false);
       status.textContent = message;
       status.classList.add("error");

@@ -83,4 +83,35 @@
             android:layout_marginTop="12dp"
             android:text="@string/error_change_address" />
     </LinearLayout>
+
+    <!-- The first launch and Change address look for the halls on this network
+         before anything loads, which takes a few seconds of mDNS. Say so, rather
+         than show a spinner over a blank or unrelated page. Consumes taps for
+         the same reason errorView does. -->
+    <LinearLayout
+        android:id="@+id/searchView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="@color/clock_background"
+        android:visibility="gone">
+
+        <ProgressBar
+            style="?android:attr/progressBarStyleLarge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:indeterminateTint="@color/clock_accent" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/search_status"
+            android:textColor="@color/clock_muted"
+            android:textSize="15sp" />
+    </LinearLayout>
 </merge>

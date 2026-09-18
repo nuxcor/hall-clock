@@ -3,6 +3,15 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Backup carries the clock address and nothing else. The WebView's
+         localStorage holds the hall's control token, and a credential for the
+         clock has no business in a Google backup or on the next phone. The
+         address does belong there: a hall on hallclock-2.local restored onto a
+         new phone should not open on the other hall's clock. So a restored or
+         transferred phone keeps its address and pairs again with the PIN.
+         Both rule files are needed: fullBackupContent up to Android 11,
+         dataExtractionRules from 12, where allowBackup alone never stopped a
+         device-to-device transfer. -->
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
@@ -10,7 +19,9 @@
         android:theme="@style/Theme.HallClock"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
-        android:allowBackup="true">
+        android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules">
 
         <!-- configChanges: a rotation must not tear down the WebView — reloading
              the controller mid-meeting would drop scroll position and any

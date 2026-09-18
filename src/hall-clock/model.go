@@ -107,7 +107,12 @@ type State struct {
 	// right now. Time saved on a short part does not pay it back — a meeting that
 	// runs long runs long, and the chairman needs the number that is actually
 	// costing him.
-	MeetingOvertimeSeconds   int        `json:"meetingOvertimeSeconds"`
+	MeetingOvertimeSeconds int `json:"meetingOvertimeSeconds"`
+	// MeetingInProgress is true from the first Start of a meeting until it is
+	// over, including while the clock sits idle between parts. Every Next
+	// leaves the clock idle, so Status cannot answer "is a meeting under way";
+	// anything that must wait for the meeting to finish keys off this instead.
+	MeetingInProgress        bool       `json:"meetingInProgress"`
 	CircuitOverseer          bool       `json:"circuitOverseer"`
 	CircuitOverseerExpiresAt *time.Time `json:"circuitOverseerExpiresAt,omitempty"`
 	// ScheduleOverrideExpiresAt lets the UI show how long a hand-edited schedule

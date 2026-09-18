@@ -26,6 +26,7 @@
   const languageStatus = document.getElementById("languageStatus");
   let scheduleKey = "";
   let nextArmTimeout = null;
+  let startArmTimeout = null;
   let endArmTimeout = null;
   let resetArmTimeout = null;
   let partArmTimeout = null;
@@ -47,20 +48,11 @@
   // A 401 means the token this browser held is dead — shared.js has already
   // dropped it. Raise the PIN prompt in place rather than a banner: the banner
   // used to point at /pair, which cannot pair anything and loops the operator
-  // straight back here still unpaired, mid-meeting.
-  let repairing = false;
+  // straight back here still unpaired, mid-meeting. The banner is only for a
+  // pairing that failed outright.
   async function repairPairing() {
-    if (repairing) return;
-    repairing = true;
-    try {
-      await WallClock.ensurePaired();
-      tokenWarning.classList.add("hidden");
-    } catch (error) {
-      console.error(error);
-      tokenWarning.classList.remove("hidden");
-    } finally {
-      repairing = false;
-    }
+    const paired = await WallClock.repairPairing();
+    tokenWarning.classList.toggle("hidden", paired);
   }
 
   // Most commands fail silently into the console; the operator deserves at
@@ -105,7 +97,12 @@
     // "Resume" survives for a paused state reached through the API, which the
     // UI can no longer produce but must not strand anybody in.
     startBtn.classList.toggle("slot-hidden", state.status === "running");
-    if (!timerCommandPending) {
+    // Start only needs confirming while the countdown runs (see its click
+    // handler); once the countdown ends, or the clock moves, one tap is right.
+    if (!startNeedsConfirm() && startBtn.classList.contains("armed")) {
+      disarmStart();
+    }
+    if (!timerCommandPending && !startBtn.classList.contains("armed")) {
       startBtn.textContent = state.status === "paused" ? "Resume" : "Start";
     }
     if (state.status === "idle") {
@@ -169,7 +166,26 @@
     nowPartTitle.textContent = nowTitle;
     nowPartTitle.classList.toggle("hidden", nowTitle === "");
     const next = index >= 0 ? schedule[index + 1] : undefined;
-    nextPart.textContent = next ? `Next: ${next.title}` : "Last item of the meeting";
+    // During the pre-meeting countdown nothing is on the clock, so what comes
+    // next is the staged item itself rather than the one after it. Naming the
+    // second item while the first has not started is wrong at the one moment
+    // the operator is checking they are set up right -- and it reads as though
+    // the first item has already been missed.
+    //
+    // It reads "First up", not "Next": the Next part button sits right below,
+    // and during the countdown it would skip this very item. "Next: X" above
+    // it reads as "this button goes to X", which is the opposite of true.
+    //
+    // Only the label moves. `next` still means "the item Start would advance
+    // to", which is what decides whether Next and End meeting are on screen; a
+    // one-item schedule must not grow a Next button just because the countdown
+    // is running.
+    const upNext = prestart ? (index >= 0 ? schedule[index] : schedule[0]) : next;
+    nextPart.textContent = upNext
+      ? `${prestart ? "First up" : "Next"}: ${upNext.title}`
+      : prestart
+        ? ""
+        : "Last item of the meeting";
 
     // How far the whole meeting is behind, not just this part. Absent until it
     // exists: a meeting running to time should show nothing at all.
@@ -184,6 +200,12 @@
     // for the whole programme. Not gated on the clock reaching zero -- a last
     // item that finishes early would leave no button on screen at all, since
     // Start is hidden while running and Next has nothing left to advance to.
+    //
+    // Only there. Showing it in the idle gaps between parts as well put a way
+    // to end the meeting under the operator's thumb all evening, and next to
+    // the countdown after a false start. A meeting left idle closes itself: the
+    // server lets it go after half an hour, or when the next one's countdown
+    // opens.
     const onFinalItem = !next && !prestart && timing;
     endBtn.classList.toggle("slot-hidden", !onFinalItem);
     if (!onFinalItem && endBtn.classList.contains("armed")) {
@@ -224,7 +246,7 @@
 
   }
 
-  async function command(path, body) {
+  async function command(path, body, options) {
     try {
       const state = await WallClock.postJSON(path, body);
       if (state && state.status) {
@@ -240,6 +262,11 @@
         repairPairing();
       } else if (error.status === 403) {
         tokenWarning.classList.remove("hidden");
+      } else if (error.status === 412 && options && options.quietConflict) {
+        // 412: the clock had already moved on from the item this tap named,
+        // so the latest state is the answer. Any other refusal, 409 included,
+        // is a real one and still gets the notice.
+        if (latestState) render(latestState);
       } else {
         flashCommandNotice();
       }
@@ -248,28 +275,78 @@
     }
   }
 
+  // A confirmed Next leaves the clock idle on the following item, where Next
+  // takes a single tap -- so a nervous second tap just after the reply skipped
+  // a whole part. Stay busy for a moment once the clock has moved, so that tap
+  // lands on a disabled button. It holds Start too: Start has just come back
+  // into the slot Next was in, and a stray tap there would start a part.
+  const ADVANCE_COOLDOWN_MS = 1000;
+
+  // The body a Next tap sends: the item on the operator's screen when they
+  // tapped. Left out until a state has arrived, which is the old behaviour.
+  function advanceFrom() {
+    const talkId = latestState && latestState.currentTalkId;
+    return Number.isInteger(talkId) ? { fromTalkId: talkId } : undefined;
+  }
+
+  // Whether the latest state from the stream has the clock on some other item
+  // than the one a failed tap named: the tap landed, or somebody else moved it.
+  function clockLeft(body) {
+    return Boolean(body && latestState) &&
+      Number.isInteger(body.fromTalkId) &&
+      latestState.currentTalkId !== body.fromTalkId;
+  }
+
+  function finishAdvance() {
+    advancePending = false;
+    if (latestState) render(latestState);
+  }
+
   // Next/Stop/End retire schedule items and are not idempotent on the server
   // (both /next and /reset advance the schedule), so a double-tap or a tap
   // queued behind a hung request must never send twice.
-  async function advanceCommand(path) {
+  //
+  // Next also names the item the operator was looking at (advanceFrom). If the
+  // clock has already left it -- another phone got there first, or an earlier
+  // tap that timed out here landed after all -- the server answers 412 and
+  // changes nothing, so a retry can never skip a part nobody meant to skip.
+  // 409 is a different refusal (Next on the last item, say) and is reported
+  // like any other failure.
+  async function advanceCommand(path, body) {
     if (advancePending) return;
     advancePending = true;
+    // A Start armed for the item being left must not carry over to the next.
+    disarmStart();
     if (latestState) render(latestState);
+    // Whether the clock ended up off the item this tap was about, however the
+    // reply went. It decides both the failure notice and the cooldown.
+    let moved = false;
     try {
-      const state = await WallClock.postJSON(path, undefined, { timeoutMs: TIMER_COMMAND_TIMEOUT_MS });
+      const state = await WallClock.postJSON(path, body, { timeoutMs: TIMER_COMMAND_TIMEOUT_MS });
       render(state);
+      moved = true;
     } catch (error) {
       if (error.status === 401) {
         repairPairing();
       } else if (error.status === 403) {
         tokenWarning.classList.remove("hidden");
+      } else if (error.status === 412 || clockLeft(body)) {
+        // Already handled. The notice says "try again", and once the clock is
+        // off the item there is nothing to retry: the server says (412) it had
+        // already moved on, or the tap timed out here but the stream shows it
+        // landed. The latest state rendered below is the answer.
+        moved = true;
       } else {
         flashCommandNotice();
       }
       console.error(error);
     } finally {
-      advancePending = false;
-      if (latestState) render(latestState);
+      if (moved) {
+        if (latestState) render(latestState);
+        setTimeout(finishAdvance, ADVANCE_COOLDOWN_MS);
+      } else {
+        finishAdvance();
+      }
     }
   }
 
@@ -456,6 +533,20 @@
     nextBtn.textContent = "Next part";
   }
 
+  // Whether Start takes two taps: only while the pre-meeting countdown is on
+  // screen and nothing is on the clock yet.
+  function startNeedsConfirm() {
+    return Boolean(latestState && latestState.prestartActive) && latestStatus === "idle";
+  }
+
+  function disarmStart() {
+    clearTimeout(startArmTimeout);
+    startArmTimeout = null;
+    if (!startBtn.classList.contains("armed")) return;
+    startBtn.classList.remove("armed");
+    startBtn.textContent = latestStatus === "paused" ? "Resume" : "Start";
+  }
+
   function disarmReset() {
     clearTimeout(resetArmTimeout);
     resetArmTimeout = null;
@@ -494,6 +585,17 @@
 
   startBtn.addEventListener("click", async () => {
     if (timerCommandPending || advancePending) return;
+    // During the pre-meeting countdown one stray tap started the first part
+    // early and took the countdown off the TV. Start still works then -- the
+    // countdown is only as right as the start time saved in /setup, and a wrong
+    // one must never lock the operator out -- but it takes a second tap.
+    if (startNeedsConfirm() && !startBtn.classList.contains("armed")) {
+      startBtn.classList.add("armed");
+      startBtn.textContent = "Confirm start";
+      startArmTimeout = setTimeout(disarmStart, ARM_TIMEOUT_MS);
+      return;
+    }
+    disarmStart();
     timerCommandPending = true;
     const status = latestStatus;
     startBtn.disabled = true;
@@ -560,8 +662,9 @@
       closeAdhocPartPanel();
     }
   });
-  // Ending a meeting stops the clock, so it always takes two taps -- there is no
-  // idle shortcut, since ending while idle is a no-op the button is disabled for.
+  // Ending a meeting stops the clock and closes the meeting, so it always takes
+  // two taps. Unlike Next it names no item: ending twice ends once, so a retry
+  // after a timeout cannot do any harm.
   endBtn.addEventListener("click", () => {
     if (!endBtn.classList.contains("armed")) {
       endBtn.classList.add("armed");
@@ -574,11 +677,12 @@
   });
   // Advancing discards a live timer's elapsed time with no way back, so while a
   // part is running or paused it takes two taps. Idle is the ordinary case
-  // (the part just ended) and moves straight on.
+  // (the part just ended) and moves straight on -- which is why advanceCommand
+  // holds a cooldown and names the item it is leaving.
   nextBtn.addEventListener("click", () => {
     if (latestStatus === "idle") {
       disarmNext();
-      advanceCommand("/api/control/next");
+      advanceCommand("/api/control/next", advanceFrom());
       return;
     }
     if (!nextBtn.classList.contains("armed")) {
@@ -589,7 +693,7 @@
       return;
     }
     disarmNext();
-    advanceCommand("/api/control/next");
+    advanceCommand("/api/control/next", advanceFrom());
   });
   // Selecting the part that is already current, not /api/control/reset: that
   // route is a documented alias for Next (see handleReset) and would advance
@@ -612,7 +716,11 @@
     disarmReset();
     const talkId = latestState && latestState.currentTalkId;
     if (!talkId) return;
-    command("/api/control/select", { talkId });
+    // Names the item as well as selecting it: on a phone whose stream has
+    // fallen behind, "the current item" can be one the clock has already left,
+    // and restarting it would drag the meeting back a part. The server refuses
+    // that with a 412, which here just means there is nothing to reset.
+    command("/api/control/select", { talkId, fromTalkId: talkId }, { quietConflict: true });
   });
   // Turning CO mode on replaces the whole programme, so it arms like End
   // does rather than flipping on a single tap. Turning it off stays one tap:
