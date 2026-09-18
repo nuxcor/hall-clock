@@ -11,7 +11,14 @@ boot.
 
 ## Pi Prerequisites
 
-- Raspberry Pi OS with desktop
+- Raspberry Pi OS with desktop, on the **X11** desktop. Bookworm starts a Pi 4
+  or 5 on Wayland, where the kiosk shows nothing on the TV; switch with
+  `sudo raspi-config nonint do_wayland W1` and reboot. The installer warns if it
+  finds a Wayland desktop running.
+- A user named **`pi`**, logged in to that desktop. The app and the kiosk run
+  as `pi`; newer Imager versions only create it if you set the username to `pi`
+  in OS customisation. The installer stops before changing anything if it is
+  missing.
 - Chromium installed
 - Wi-Fi or Ethernet connected to the same network as controller phones
 
@@ -46,6 +53,9 @@ sudo ./install.sh
 
 The installer:
 
+- runs the binary once (`-version`) before changing anything, and stops if it
+  was built for a different CPU than this Pi's — an arm64 build on a 32-bit Pi
+  would otherwise install cleanly and then crash-loop
 - sets the hostname to `hallclock` (see "Two Halls On One LAN" to change it)
 - installs `/opt/hall-clock/hall-clock`
 - creates `/etc/hall-clock/config.json` on first run
@@ -192,10 +202,13 @@ Either way the updater:
 
 - compares `hall-clock -version` against the latest release tag, and stops if
   they match
-- **refuses to update during a meeting.** A restart rebuilds state from config
-  with the timer reset to idle, so updating mid-meeting would blank a running
-  countdown on the projector. It checks `/api/state` and refuses if the status is
-  not `idle`.
+- **installs only between meetings**: not while a meeting is in progress,
+  including between parts, and not during the pre-meeting countdown. A restart
+  blanks the TV while the app comes back and rebuilds state from config with
+  the timer reset, so updating then would wipe the countdown off the projector.
+  It reads `/api/state` (`status`, `meetingInProgress`, `prestartActive`) and
+  records `deferred` instead — once before downloading, and again just before
+  it replaces anything, in case the download ran into the next meeting.
 - downloads the binary matching this Pi's CPU (`uname -m`) and the Raspberry Pi
   deploy bundle
 - verifies both downloads against `SHA256SUMS` before installing them
@@ -203,23 +216,27 @@ Either way the updater:
   moment where the binary is half-written
 - refreshes the systemd units, Caddyfile, kiosk script, updater script, and
   housekeeping script from the deploy bundle
-- keeps the old binary as `hall-clock.previous` and **rolls back** if the new
+- keeps the old binary as `hall-clock.previous`, plus copies of the units,
+  Caddyfile and scripts it replaces, and **rolls back** all of them if the new
   one fails to restart or does not answer on its socket within 15 seconds
 
 ### The Update button
 
 The Software card on `/setup` shows the running version, whether a newer release
-exists, and when the check last ran. When an update is available and the timer is
-idle, tapping **Update** installs it there and then. Since nothing installs
-automatically, this is the normal way a hall gets a new version — and the only
-way for a hall on a LAN you cannot reach: talk someone through opening the setup
-page from a paired phone and tapping one button.
+exists, and when the check last ran. When an update is available and no meeting
+is under way, tapping **Update** installs it there and then. Since nothing
+installs automatically, this is the normal way a hall gets a new version — and
+the only way for a hall on a LAN you cannot reach: talk someone through opening
+the setup page from a paired phone and tapping one button.
 
-The button is disabled while a meeting is running or paused, because installing
-restarts the app and a restart resets the countdown. Reset the timer to idle
-first. During the update the page shows `Downloading… → Restarting…`; the app
-goes away for a second or two while it restarts, and the page reconnects on its
-own and reports the result.
+Updates happen between meetings: not while a meeting is in progress, including
+between parts, and not during the pre-meeting countdown, because installing
+restarts the app, which blanks the TV and resets the countdown. A meeting counts
+as finished once **End meeting** is tapped on its last part, or once the clock
+has sat idle for half an hour. During the update the page shows
+`Downloading… → Installing… → Restarting…`; the app goes away for a second or
+two while it restarts, and the page reconnects on its own and reports the
+result.
 
 How the button reaches root, given the app runs as `pi` with
 `NoNewPrivileges=true` (so `sudo` cannot work):
@@ -233,7 +250,7 @@ How the button reaches root, given the app runs as `pi` with
 
 That is the entire privilege boundary: the app can ask for an update, and can do
 nothing else as root. `POST /api/update` requires the pairing token; the update
-runs only when the timer is idle.
+runs only between meetings.
 
 `/var/lib/hall-clock` is a `StateDirectory` rather than the `RuntimeDirectory`
 used for the socket, because systemd deletes the latter on restart — which is
