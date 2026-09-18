@@ -38,6 +38,13 @@ itself, which is why the shell holds the screen awake (see below).
   context, which a plain-HTTP hall will never have. The shell is the only
   place this can be fixed.
 - Keeps localStorage (the pairing token), so pairing survives relaunches.
+  The token is **never** backed up or carried to a new phone: it is a
+  credential for the hall's clock. Backup and device-to-device transfer carry
+  the clock address only (`res/xml/backup_rules.xml` up to Android 11,
+  `res/xml/data_extraction_rules.xml` from 12, where `allowBackup` alone does
+  not stop a transfer). A restored or new phone therefore still points at its
+  own hall — `hallclock-2.local` stays `hallclock-2.local` — and pairs again
+  with that hall's PIN.
 - Back walks WebView history; at the root it asks before closing, and that
   dialog is also where **Change address** lives. It has to be reachable from a
   working page: an address that loads *something* (a router's admin page, say)
