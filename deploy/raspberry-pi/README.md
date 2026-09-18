@@ -96,7 +96,12 @@ clock. Lowercase letters, digits, and inner hyphens only. The default is
 
 Then open `http://hallclock-b.local/setup` and set **Device name** ("Hall B").
 That is what the controller shows in its title, so an operator can tell at a
-glance which hall the phone in their hand is driving.
+glance which hall the phone in their hand is driving. It is also how the
+Android app's first launch lists the halls it finds ("Which hall are you in?"),
+and what the PIN prompt names ("Enter the PIN for Hall B"). Name every hall,
+the first one too. The app looks for `hallclock`, `hallclock-2` to `-4` and
+`hallclock-b` to `-d`; a Pi named anything else is reached by typing its
+address.
 
 The TV display needs nothing: the kiosk loads `localhost`, deliberately, so it
 never depends on the Pi resolving its own `.local` name.

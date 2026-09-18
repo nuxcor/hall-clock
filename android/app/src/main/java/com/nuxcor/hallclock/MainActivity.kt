@@ -24,6 +24,13 @@ import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 // A deliberately thin shell: the whole controller UI lives on the Pi and keeps
 // updating server-side, exactly as it does for browser users. This app exists
@@ -37,6 +44,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var errorView: View
     private lateinit var errorAddress: TextView
     private lateinit var spinner: View
+    private lateinit var searchView: View
+
+    // A hall the search found: the origin to load, and what to call it.
+    private data class Hall(val base: String, val label: String)
 
     private val prefs by lazy { getSharedPreferences("hall-clock", MODE_PRIVATE) }
 
@@ -74,8 +85,9 @@ class MainActivity : ComponentActivity() {
         errorView = findViewById(R.id.errorView)
         errorAddress = findViewById(R.id.errorAddress)
         spinner = findViewById(R.id.spinner)
+        searchView = findViewById(R.id.searchView)
         findViewById<View>(R.id.retryButton).setOnClickListener { load() }
-        findViewById<View>(R.id.changeAddressButton).setOnClickListener { promptForHost() }
+        findViewById<View>(R.id.changeAddressButton).setOnClickListener { searchForHall(firstLaunch = false) }
 
         // The controller keeps its pairing token in localStorage, so DOM storage
         // is load-bearing, not an optimization: without it every launch would
@@ -153,13 +165,138 @@ class MainActivity : ComponentActivity() {
             if (web.canGoBack()) web.goBack() else promptForLeave()
         }
 
-        // No setup dialog on first launch. Every phone in a hall talks to the
-        // same clock, so making each operator type its address is friction for
-        // all of them to serve a case that already has two escape hatches: the
-        // error screen when the address is unreachable, and the back menu when
-        // it reaches the wrong thing. Boot straight to the built-in default.
-        if (base.isEmpty()) base = normalizeBase(getString(R.string.host_default))
-        if (base.isEmpty()) promptForHost() else load()
+        // A phone that has been pointed at its hall goes straight there. The
+        // first launch looks for the halls on this network instead of opening a
+        // built-in address: two halls sharing one Wi-Fi both answer, and opening
+        // the first one's controller put the second one's operators in front of
+        // the wrong hall's PIN prompt with nothing to say so.
+        if (base.isNotEmpty()) load() else searchForHall(firstLaunch = true)
+    }
+
+    // Finds the halls on this network and lets the operator pick theirs by
+    // name. On the first launch a single hall opens straight away — most
+    // congregations have one, and asking them anything would be friction — and
+    // finding none falls back to the built-in address, whose error screen
+    // explains what to check. From Change address the list is always shown,
+    // with the current hall ticked and a way to type an address.
+    private fun searchForHall(firstLaunch: Boolean) {
+        errorView.visibility = View.GONE
+        searchView.visibility = View.VISIBLE
+        findHalls { halls ->
+            searchView.visibility = View.GONE
+            when {
+                firstLaunch && halls.size == 1 -> {
+                    base = halls[0].base
+                    load()
+                }
+                halls.isEmpty() && firstLaunch -> {
+                    val fallback = normalizeBase(getString(R.string.host_default))
+                    if (fallback.isEmpty()) {
+                        promptForHost()
+                    } else {
+                        base = fallback
+                        load()
+                    }
+                }
+                halls.isEmpty() -> promptForHost()
+                else -> chooseHall(halls, firstLaunch)
+            }
+        }
+    }
+
+    private fun chooseHall(halls: List<Hall>, firstLaunch: Boolean) {
+        val current = halls.indexOfFirst { it.base == base }
+        val builder = AlertDialog.Builder(this)
+            .setTitle(R.string.hall_picker_title)
+            .setSingleChoiceItems(halls.map { it.label }.toTypedArray(), current) { dialog, which ->
+                dialog.dismiss()
+                base = halls[which].base
+                load()
+            }
+            .setNeutralButton(R.string.hall_picker_other) { _, _ -> promptForHost() }
+        if (firstLaunch) {
+            // Nothing is loaded yet, so there is nothing to go back to: the
+            // choice is the way in.
+            builder.setCancelable(false)
+        } else {
+            builder.setNegativeButton(R.string.menu_cancel, null)
+        }
+        builder.show()
+    }
+
+    // Asks every name in hall_candidates at once and hands back the ones that
+    // answered as a hall clock, in list order. A .local name that does not
+    // exist can take the whole mDNS timeout to fail, so this waits for all of
+    // them only up to SEARCH_WAIT_MS and keeps whatever answered. `done` runs
+    // on the main thread, and not at all once the activity is gone.
+    private fun findHalls(done: (List<Hall>) -> Unit) {
+        val candidates = resources.getStringArray(R.array.hall_candidates)
+            .map { normalizeBase(it) }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        val found = ConcurrentHashMap<Int, Hall>()
+        val finished = CountDownLatch(candidates.size)
+        candidates.forEachIndexed { index, candidate ->
+            thread(isDaemon = true) {
+                try {
+                    probeHall(candidate)?.let { found[index] = it }
+                } finally {
+                    finished.countDown()
+                }
+            }
+        }
+        thread(isDaemon = true) {
+            finished.await(SEARCH_WAIT_MS, TimeUnit.MILLISECONDS)
+            val halls = found.toSortedMap().values.toList()
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) done(halls)
+            }
+        }
+    }
+
+    // A hall clock answers /api/state without pairing, with the name set on its
+    // setup page. Anything else at that name — a printer, a router — is not one.
+    private fun probeHall(candidate: String): Hall? = try {
+        val connection = URL("$candidate/api/state").openConnection() as HttpURLConnection
+        connection.connectTimeout = PROBE_TIMEOUT_MS
+        connection.readTimeout = PROBE_TIMEOUT_MS
+        try {
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                null
+            } else {
+                // Bounded: whatever answers at a guessed name is not trusted to
+                // be small.
+                val body = connection.inputStream.bufferedReader().use { reader ->
+                    val chars = CharArray(MAX_STATE_CHARS)
+                    var length = 0
+                    while (length < chars.size) {
+                        val read = reader.read(chars, length, chars.size - length)
+                        if (read < 0) break
+                        length += read
+                    }
+                    String(chars, 0, length)
+                }
+                val state = JSONObject(body)
+                if (state.has("deviceName") && state.has("schedule")) {
+                    Hall(candidate, hallLabel(state.optString("deviceName"), candidate))
+                } else {
+                    null
+                }
+            }
+        } finally {
+            connection.disconnect()
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    // The name from the hall's setup page with its address beneath, so two
+    // halls read differently even to someone who has never seen either. A hall
+    // still called the default "Hall Clock" is shown by its address alone.
+    private fun hallLabel(deviceName: String, candidate: String): String {
+        val address = candidate.toUri().authority ?: candidate
+        val name = deviceName.trim()
+        return if (name.isEmpty() || name == "Hall Clock") address else "$name\n$address"
     }
 
     private fun load() {
@@ -198,7 +335,7 @@ class MainActivity : ComponentActivity() {
         // does not cover that button, so both would be on screen at once.
         if (errorView.visibility != View.VISIBLE) {
             labels += getString(R.string.menu_change_address)
-            actions += { promptForHost() }
+            actions += { searchForHall(firstLaunch = false) }
         }
 
         // The reassurance rides on the item itself rather than sitting in a
@@ -214,8 +351,9 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
-    // Only ever reached from a recovery path — the error screen or the back
-    // menu — never on the way in.
+    // Typing an address is the fallback now, reached from the hall list's
+    // "Another address" or when the search finds nothing: a hall behind an IP,
+    // a custom name, or a network whose Wi-Fi does not carry mDNS.
     private fun promptForHost(
         error: String? = null,
         // Re-prompting after a rejected address keeps what was typed: the fix is
@@ -247,7 +385,14 @@ class MainActivity : ComponentActivity() {
             .setView(frame)
             .setPositiveButton(R.string.host_dialog_ok) { _, _ -> applyHost(input.text.toString()) }
             .setNegativeButton(R.string.host_dialog_cancel, null)
+            // Backing out on the first launch, before any hall was chosen, would
+            // leave an empty app with nothing to go back to: search again.
+            .setOnCancelListener { if (base.isEmpty()) searchForHall(firstLaunch = true) }
             .show()
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+            dialog.dismiss()
+            if (base.isEmpty()) searchForHall(firstLaunch = true)
+        }
         input.setOnEditorActionListener { _, actionId, _ ->
             if (actionId != EditorInfo.IME_ACTION_GO) return@setOnEditorActionListener false
             dialog.dismiss()
@@ -282,5 +427,16 @@ class MainActivity : ComponentActivity() {
         if (scheme != "http" && scheme != "https") return ""
         val authority = parsed.authority?.takeIf { it.isNotBlank() } ?: return ""
         return "$scheme://$authority"
+    }
+
+    private companion object {
+        // Long enough for a phone slow to resolve .local on a cold start, short
+        // enough to sit through once: it only ever runs on the first launch and
+        // from Change address.
+        const val SEARCH_WAIT_MS = 6000L
+        const val PROBE_TIMEOUT_MS = 3000
+        // A hall's state is a few kilobytes; this leaves room for a long
+        // programme without reading an unbounded body.
+        const val MAX_STATE_CHARS = 256 * 1024
     }
 }

@@ -1,15 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Hall Clock</string>
-    <!-- The clock this app opens. The only thing to change when pointing a build
-         at a different hall, and the reason there is no setup screen: nobody is
-         asked to type an address the build already knows. A bare name, an IP, or
-         a host:port all work.
-
-         Deliberately one hall, not a list: operators belong to one hall, so a
-         phone is pointed once and never again, and a picker would be persistent
-         machinery for a one-time act. A second hall's phones enter its address
-         once from the error screen.
+    <!-- The clock this app opens when the first-launch search finds nothing. A
+         bare name, an IP, or a host:port all work.
 
          Prefer a Pi's static IP over its .local name if mDNS does not reach the
          phones. Two ways that happens: Android 11 and older cannot resolve
@@ -17,6 +10,24 @@
          phones are on Wi-Fi, so every lookup crosses the AP's multicast
          boundary, which some APs filter. -->
     <string name="host_default">hallclock.local</string>
+    <!-- The names the first launch and Change address look for, all at once.
+         install.sh names the first hall hallclock and suggests hallclock-b for
+         a second; halls also get numbered (hallclock-2). Order is the order the
+         list is shown in. Each one that answers as a hall clock is offered by
+         the name set on its setup page, so nobody types an address to find
+         their own hall on a network shared with another. -->
+    <string-array name="hall_candidates">
+        <item>hallclock.local</item>
+        <item>hallclock-2.local</item>
+        <item>hallclock-3.local</item>
+        <item>hallclock-4.local</item>
+        <item>hallclock-b.local</item>
+        <item>hallclock-c.local</item>
+        <item>hallclock-d.local</item>
+    </string-array>
+    <string name="search_status">Looking for the hall clock…</string>
+    <string name="hall_picker_title">Which hall are you in?</string>
+    <string name="hall_picker_other">Another address</string>
     <string name="host_dialog_title">Clock address</string>
     <string name="host_dialog_hint">hallclock.local or 192.168.1.50</string>
     <string name="host_dialog_ok">Connect</string>
